@@ -1,0 +1,6 @@
+{
+  "name": "Binance Price Tracker & Alert Engine",
+  "description": "A high-performance cryptocurrency monitoring dashboard that tracks 4 Binance coins in real time, displays 100-point historical price graphs, and sends instant alert notifications when custom price thresholds are crossed.",
+  "requestFramePermissions": ["notifications"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
