@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "alert": {
+      "title": "Alert",
+      "description": "A custom user alert for cryptocurrency price threshold",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The unique ID of the alert"
+        },
+        "userId": {
+          "type": "string",
+          "description": "The Firebase Auth UID of the alert creator"
+        },
+        "symbol": {
+          "type": "string",
+          "description": "The cryptocurrency trading pair, e.g. BTCUSDT"
+        },
+        "priceThreshold": {
+          "type": "number",
+          "description": "The target price threshold"
+        },
+        "condition": {
+          "type": "string",
+          "description": "Whether to trigger ABOVE or BELOW",
+          "enum": ["ABOVE", "BELOW"]
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp or server timestamp of creation"
+        },
+        "triggered": {
+          "type": "boolean",
+          "description": "Whether the alert has been triggered"
+        },
+        "triggeredAt": {
+          "type": "string",
+          "description": "ISO timestamp of trigger event"
+        }
+      },
+      "required": ["id", "userId", "symbol", "priceThreshold", "condition", "createdAt", "triggered"]
+    }
+  },
+  "firestore": {
+    "alerts/{alertId}": {
+      "schema": "alert",
+      "description": "User custom price alerts"
+    }
+  }
+}
