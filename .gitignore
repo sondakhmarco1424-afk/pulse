@@ -1,0 +1,39 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+pulse
+main
+__debug_bin*
+
+# Test binaries
+*.test
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# Vendor directory
+vendor/
+
+# Environment variables
+.env
+.env.*
+
+# Critical Secrets
+internal/config/firebase-service-account.json
+firebase-service-account.json
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker
+docker/db_data/
+docker/keycloak/
+docker/kafka/

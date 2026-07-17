@@ -1,0 +1,236 @@
+basePath: /api/v1
+definitions:
+  models.Alert:
+    properties:
+      active_requester:
+        type: string
+      created_at:
+        type: string
+      error_message:
+        type: string
+      id:
+        type: integer
+      latest_price:
+        type: number
+      notification_status:
+        description: '"PENDING", "TRIGGERED", "CANCELLED", "FAILED"'
+        type: string
+      price_trigger:
+        type: number
+      requester:
+        type: string
+      symbol:
+        type: string
+      trigger_direction:
+        description: '"ABOVE", "BELOW"'
+        type: string
+      triggered_at:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  models.AlertsRequestRaw:
+    properties:
+      price:
+        type: string
+      range:
+        type: string
+      requester:
+        type: string
+      show_all:
+        type: boolean
+      status:
+        type: string
+      symbol:
+        type: string
+      trigger_direction:
+        type: string
+    type: object
+  models.FCMSubscribeRequest:
+    properties:
+      email:
+        type: string
+      token:
+        type: string
+    required:
+    - email
+    - token
+    type: object
+host: localhost:8081
+info:
+  contact: {}
+  description: This is the API server for the Pulse Real-Time Crypto Alert Aggregation
+    Engine.
+  termsOfService: http://swagger.io/terms/
+  title: Pulse Real-Time Crypto Alert Engine API
+  version: "1.0"
+paths:
+  /alerts:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves all price alerts (both pending and triggered) for a user
+        based on requester email.
+      parameters:
+      - description: Requester Email
+        in: query
+        name: requester
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of alerts retrieved successfully
+          schema:
+            items:
+              $ref: '#/definitions/models.Alert'
+            type: array
+        "400":
+          description: Bad Request (e.g. Missing requester)
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List alerts for a user
+      tags:
+      - Alerts
+  /alerts/cancel:
+    post:
+      consumes:
+      - application/json
+      description: Cancels a pending price alert for a user based on requester, symbol,
+        and price.
+      parameters:
+      - description: Alert Cancellation Request Details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.AlertsRequestRaw'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Alert cancelled successfully
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request (e.g. Validation or not found)
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Cancel an active price alert
+      tags:
+      - Alerts
+  /alerts/create:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new pending price alert for a user, validating that no
+        pending alerts already exist for the symbol.
+      parameters:
+      - description: Alert Creation Request Details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.AlertsRequestRaw'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Alert created successfully
+          schema:
+            $ref: '#/definitions/models.Alert'
+        "400":
+          description: Bad Request (e.g. Validation or duplicates)
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a price alert
+      tags:
+      - Alerts
+  /binance/history:
+    get:
+      description: Fetches recent price tick history (up to 100 entries per symbol)
+        from Redis cache for graphs.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: A map of symbol to their historic tick array
+          schema:
+            additionalProperties:
+              items: {}
+              type: array
+            type: object
+        "500":
+          description: Error message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get price history of subscribed symbols
+      tags:
+      - Binance
+  /fcm/subscribe:
+    post:
+      consumes:
+      - application/json
+      description: Subscribes a client's FCM device token to their personal notification
+        topic.
+      parameters:
+      - description: FCM Subscription Request Details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.FCMSubscribeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Subscribed successfully
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Subscribe FCM token to user topic
+      tags:
+      - Alerts
+swagger: "2.0"

@@ -1,0 +1,111 @@
+networks:
+  pulse-system-net:
+    name: pulse-system-net
+
+services:
+  pulse_app_db:
+    image: mysql:8.0
+    restart: on-failure
+    container_name: pulse_app_mysql
+    command: mysqld --default-authentication-plugin=mysql_native_password --character-set-server=utf8 --collation-server=utf8_unicode_ci
+    deploy:
+      replicas: 1
+    environment:
+      MYSQL_DATABASE: pulse_system
+      # So you don't have to use root, but you can if you like
+      MYSQL_USER: pulse
+      # You can use whatever password you like
+      MYSQL_PASSWORD: db_Default_123!
+      # Password for root access
+      MYSQL_ROOT_PASSWORD: db_Default_123!
+    ports:
+      # <Port exposed> : <MySQL Port running inside container>
+      - "3306:3306"
+    #expose:
+    # Opens port 3306 on the container
+    #- '3307'
+    networks:
+      - pulse-system-net
+      # Where our data will be persisted
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./docker/db_data:/var/lib/mysql
+      - ./docker/db_sql:/docker-entrypoint-initdb.d
+
+  redis:
+    image: docker.io/bitnamilegacy/redis:8.2.1
+    environment:
+      - REDIS_PASSWORD=pass123!@#
+      - REDIS_DISABLE_COMMANDS=FLUSHDB,FLUSHALL
+    networks:
+      - pulse-system-net
+    ports:
+      - 6380:6379
+    volumes:
+      - "redis_data:/bitnami/redis/data"
+    deploy:
+      replicas: 1
+
+  redis-insight:
+    image: redis/redisinsight:latest
+    restart: always
+    networks:
+      - pulse-system-net
+    ports:
+      - "5540:5540"
+    volumes:
+      - "redis-insight:/data"
+    deploy:
+      replicas: 0
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: pulse_kafka
+    restart: on-failure
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    networks:
+      - pulse-system-net
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: pulse_kafka_ui
+    restart: on-failure
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-kafka
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    networks:
+      - pulse-system-net
+    depends_on:
+      - kafka
+
+
+volumes:
+  redis_data:
+    driver: local
+  redis-insight:
+    driver: local
+  mysql_data:
+    external: true
