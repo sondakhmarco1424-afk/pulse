@@ -1,0 +1,54 @@
+app:
+  version: "1.0"
+  env: ${APP_ENV|development}
+  enable_auth: ${APP_ENABLE_AUTH|true}
+  traccar_go_live_timeout: ${TRACCAR_TIMEOUT|360}
+  online_timeout: ${ONLINE_TIMEOUT|120}
+
+
+server:
+  host: ${SERVER_HOST|}
+  port: ${SERVER_PORT|8081}
+  base_path: ${SERVER_BASEPATH|}
+
+db:
+  mysql:
+    enabled: true
+    host: ${DB_HOST|localhost}
+    port: ${DB_PORT|3306}
+    user: ${DB_USER|root}
+    pass: ${DB_PASSWORD|db_Default_123!}
+    schema : ${DB_SCHEMA|pulse_system}
+
+redis:
+  host: ${REDIS_HOST|localhost}
+  port: ${REDIS_PORT|6380}
+  password: ${REDIS_PASSWORD|pass123!@#}
+  expiry: ${REDIS_EXPIRY_MINUTES|7}
+  db: ${REDIS_DB|0}
+
+binance:
+  ws_url: ${BINANCE_WS_URL|wss://stream.binance.com:9443/ws}
+
+firebase:
+  enabled: ${FIREBASE_ENABLED|true}
+  service_account_key: ${FIREBASE_SERVICE_ACCOUNT_KEY|internal/config/firebase-service-account.json}
+  storage_client_bucket: ${FIREBASE_STORAGE_CLIENT_BUCKET|vms-dev-ca7ce.firebasestorage.app}
+  firestore_client_database_id: ${FIREBASE_FIRESTORE_CLIENT_DATABASE_ID|vms-db}
+  # Service account environment variables
+  type: ${FIREBASE_TYPE|service_account}
+  project_id: ${FIREBASE_PROJECT_ID|}
+  private_key_id: ${FIREBASE_PRIVATE_KEY_ID|}
+  private_key: ${FIREBASE_PRIVATE_KEY|}
+  client_email: ${FIREBASE_CLIENT_EMAIL|}
+  client_id: ${FIREBASE_CLIENT_ID|}
+  auth_uri: ${FIREBASE_AUTH_URI|https://accounts.google.com/o/oauth2/auth}
+  token_uri: ${FIREBASE_TOKEN_URI|https://oauth2.googleapis.com/token}
+  auth_provider_x509_cert_url: ${FIREBASE_AUTH_PROVIDER_X509_CERT_URL|https://www.googleapis.com/oauth2/v1/certs}
+  client_x509_cert_url: ${FIREBASE_CLIENT_X509_CERT_URL|}
+  universe_domain: ${FIREBASE_UNIVERSE_DOMAIN|googleapis.com}
+
+kafka:
+  brokers: ${KAFKA_BROKERS|localhost:9092}
+  fcm_notifications_topic: ${KAFKA_FCM_NOTIFICATIONS_TOPIC|fcm-notifications}
+
