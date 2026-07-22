@@ -16,9 +16,10 @@ We have provided a one-click setup script to get you running immediately.
    - Install all Frontend Node dependencies.
    - Install all Go backend dependencies.
 
-2. **Configure Firebase Secrets (Required for Push Notifications):**
+2. **Configure Firebase Secrets & Network:**
    - Place your Firebase Admin SDK private key in `internal/config/firebase-service-account.json`. 
    - Ensure your `frontend/firebase-applet-config.json` matches your Firebase project config.
+   - **VPN Note:** Make sure you are connected to a VPN if Binance services/APIs are restricted in your region.
    ![alt text](image.png)
 
 
@@ -65,5 +66,6 @@ go run internal/cmd/main.go
 - **Infrastructure:** Docker, Zookeeper
 
 ## 📝 Important Notes
+- **VPN Requirement:** Binance APIs and WebSocket streams may be geoblocked or restricted in certain regions. If you encounter connection errors or fail to fetch live prices, make sure you are using a VPN.
 - **FCM Web Push:** For push notifications to successfully route to the web frontend, you MUST access the frontend on `http://localhost:3000` or a secure HTTPS domain.
 - **Service Worker:** FCM requires `firebase-messaging-sw.js` in the public root.
