@@ -4,11 +4,13 @@ import { Clock } from 'lucide-react';
 interface HeaderProps {
   user: any;
   connectionStatus: 'connected' | 'reconnecting' | 'disconnected';
+  onRetryConnection?: () => void;
 }
 
 export default function Header({
   user,
   connectionStatus,
+  onRetryConnection,
 }: HeaderProps) {
   const [utcTime, setUtcTime] = useState<string>('');
 
@@ -21,12 +23,6 @@ export default function Header({
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
   }, []);
-
-  const statusColors = {
-    connected: 'bg-emerald-500 text-emerald-400',
-    reconnecting: 'bg-amber-500 text-amber-400',
-    disconnected: 'bg-rose-500 text-rose-400',
-  };
 
   return (
     <header className="border-b border-zinc-800 bg-[#0A0A0B] px-8 py-5 flex flex-col md:flex-row items-center justify-between gap-4 select-none">
@@ -41,15 +37,23 @@ export default function Header({
           </h1>
         </div>
 
-        <div className="px-3 py-1 rounded-full border border-zinc-800 bg-zinc-900/50 flex items-center gap-2">
+        <button
+          onClick={onRetryConnection}
+          type="button"
+          disabled={connectionStatus === 'connected'}
+          title={connectionStatus !== 'connected' ? 'Click to retry connection' : 'Connected to Binance Stream'}
+          className={`px-3 py-1 rounded-full border border-zinc-800 bg-zinc-900/50 flex items-center gap-2 transition-colors ${
+            connectionStatus !== 'connected' ? 'hover:border-zinc-700 cursor-pointer' : 'cursor-default'
+          }`}
+        >
           <span className={`inline-block w-1.5 h-1.5 rounded-full ${
             connectionStatus === 'connected' ? 'bg-emerald-500' :
             connectionStatus === 'reconnecting' ? 'bg-amber-500' : 'bg-rose-500'
           } animate-pulse`} />
           <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">
-            {connectionStatus === 'connected' ? 'Binance WS Live' : connectionStatus}
+            {connectionStatus === 'connected' ? 'Binance WS Live' : `${connectionStatus} (Click to Retry)`}
           </span>
-        </div>
+        </button>
       </div>
 
       {/* UTC Clock & System Info */}

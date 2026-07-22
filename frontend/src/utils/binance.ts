@@ -23,9 +23,8 @@ export async function fetchInitialHistory(symbol: string, interval: string = '1m
       price: parseFloat(item[4]),
     }));
   } catch (error) {
-    console.warn(`Fallback active: Initial history for ${symbol} populated via local simulation context.`, error);
-    // Return a beautiful mock upward trend fallback if the network is completely blocked
-    return generateFallbackHistory(symbol, interval);
+    console.warn(`Initial history for ${symbol} fetch failed (Binance API disconnected).`, error);
+    return [];
   }
 }
 
@@ -46,8 +45,13 @@ export async function fetchTicker24h(symbol: string) {
       low24h: parseFloat(data.lowPrice),
     };
   } catch (error) {
-    console.warn(`Fallback active: 24h ticker statistics for ${symbol} populated via local simulation context.`, error);
-    return getFallbackTicker(symbol);
+    console.warn(`24h ticker statistics for ${symbol} fetch failed (Binance API disconnected).`, error);
+    return {
+      currentPrice: 0,
+      change24h: 0,
+      high24h: 0,
+      low24h: 0,
+    };
   }
 }
 

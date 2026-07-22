@@ -67,6 +67,7 @@ func Init() *gin.Engine {
 		binanceGroup := apiv1.Group("/binance")
 		{
 			binanceGroup.GET("/history", v1ControllerBinance.GetSubscribedSymbolsHistory)
+			binanceGroup.GET("/status", v1ControllerBinance.GetStatus)
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 
 	"pulse/internal/models"
@@ -66,9 +67,37 @@ func (svc *fcmNotificationService) Send(ctx context.Context, payload models.Aler
 		out[k] = v
 	}
 
+	title := out["title"]
+	if title == "" {
+		title = "Price Alert Triggered"
+	}
+	body := out["body"]
+	if body == "" {
+		body = "Alert condition met!"
+	}
+
+	var webpushFCMOptions *messaging.WebpushFCMOptions
+	appURL := strings.TrimSpace(os.Getenv("APP_URL"))
+	if strings.HasPrefix(appURL, "http://") || strings.HasPrefix(appURL, "https://") {
+		symbol := out["symbol"]
+		linkURL := strings.TrimSuffix(appURL, "/")
+		if symbol != "" {
+			linkURL += "/?symbol=" + symbol
+		}
+		webpushFCMOptions = &messaging.WebpushFCMOptions{
+			Link: linkURL,
+		}
+	}
+
 	message := &messaging.Message{
 		Topic: *topic,
 		Data:  out,
+		Webpush: &messaging.WebpushConfig{
+			Headers: map[string]string{
+				"Urgency": "high",
+			},
+			FCMOptions: webpushFCMOptions,
+		},
 	}
 
 	payloadJson, _ := json.Marshal(message.Data)

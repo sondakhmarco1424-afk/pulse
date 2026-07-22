@@ -8,6 +8,8 @@ interface AlertFormProps {
   onCreateAlert: (symbol: string, condition: 'ABOVE' | 'BELOW', price: number) => void;
   isDemoMode: boolean;
   user: any;
+  connectionStatus?: 'connected' | 'reconnecting' | 'disconnected';
+  onRetryConnection?: () => void;
 }
 
 export default function AlertForm({
@@ -16,6 +18,8 @@ export default function AlertForm({
   onCreateAlert,
   isDemoMode,
   user,
+  connectionStatus = 'connected',
+  onRetryConnection,
 }: AlertFormProps) {
   const [symbol, setSymbol] = useState<string>(activeCoin.symbol);
   const [condition, setCondition] = useState<'ABOVE' | 'BELOW'>('ABOVE');
@@ -28,6 +32,7 @@ export default function AlertForm({
   }, [activeCoin]);
 
   const selectedCoinInfo = coins.find(c => c.symbol === symbol) || activeCoin;
+  const isNotConnected = connectionStatus !== 'connected';
 
   const handlePercentageChange = (percent: number) => {
     const calculated = selectedCoinInfo.currentPrice * (1 + percent / 100);
@@ -37,6 +42,11 @@ export default function AlertForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (isNotConnected) {
+      setError('Cannot connect to Binance. Please make sure you are using a VPN if Binance is restricted in your location.');
+      return;
+    }
 
     const price = parseFloat(priceInput);
     if (isNaN(price) || price <= 0) {
@@ -61,6 +71,40 @@ export default function AlertForm({
           <p className="text-[9px] font-mono text-zinc-500 tracking-widest uppercase">TRIGGER INSTANT FCM BROADCASTS</p>
         </div>
       </div>
+
+      {isNotConnected && (
+        <div className={`mb-4 rounded p-3 text-center flex flex-col items-center gap-2 border ${
+          connectionStatus === 'reconnecting'
+            ? 'bg-amber-500/10 border-amber-500/30'
+            : 'bg-rose-500/10 border-rose-500/30'
+        }`}>
+          <div>
+            <p className={`text-[11px] font-mono font-medium leading-relaxed ${
+              connectionStatus === 'reconnecting' ? 'text-amber-400' : 'text-rose-400'
+            }`}>
+              {connectionStatus === 'reconnecting' ? '⏳ CONNECTING TO BINANCE...' : '⚠️ NOT CONNECTED TO BINANCE'}
+            </p>
+            <p className={`text-[10px] font-sans mt-0.5 ${
+              connectionStatus === 'reconnecting' ? 'text-amber-300/80' : 'text-rose-300/80'
+            }`}>
+              Notifications and alert creation are disabled until connection is restored. Please make sure you are using a VPN if Binance is restricted in your region.
+            </p>
+          </div>
+          {onRetryConnection && (
+            <button
+              onClick={onRetryConnection}
+              type="button"
+              className={`px-3 py-1 border text-[10px] font-mono rounded cursor-pointer transition-colors ${
+                connectionStatus === 'reconnecting'
+                  ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/40 text-amber-300'
+                  : 'bg-rose-500/20 hover:bg-rose-500/30 border-rose-500/40 text-rose-300'
+              }`}
+            >
+              🔄 RETRY CONNECTION NOW
+            </button>
+          )}
+        </div>
+      )}
 
       {!hasAccess ? (
         <div className="bg-zinc-900/40 border border-zinc-800 rounded p-5 text-center my-2">
@@ -180,9 +224,14 @@ export default function AlertForm({
           {/* Submit */}
           <button
             type="submit"
-            className="w-full py-3 bg-white text-black font-serif italic text-sm mt-2 hover:bg-zinc-200 transition-all cursor-pointer rounded"
+            disabled={isNotConnected}
+            className={`w-full py-3 font-serif italic text-sm mt-2 transition-all rounded ${
+              isNotConnected
+                ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
+                : 'bg-white text-black hover:bg-zinc-200 cursor-pointer'
+            }`}
           >
-            Deploy Price Alert
+            {isNotConnected ? 'Binance Connection Unavailable' : 'Deploy Price Alert'}
           </button>
 
           {/* Info Badge */}

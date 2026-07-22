@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"pulse/internal/config"
@@ -14,9 +15,12 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+var binanceConnected atomic.Bool
+
 type (
 	BinanceRepository interface {
 		ConnectWs()
+		IsConnected() bool
 	}
 	binanceRepository struct {
 	}
@@ -26,7 +30,14 @@ func NewBinanceRepository() BinanceRepository {
 	return &binanceRepository{}
 }
 
+func (svc *binanceRepository) IsConnected() bool {
+	return binanceConnected.Load()
+}
+
 func (svc *binanceRepository) ConnectWs() {
+	binanceConnected.Store(false)
+	defer binanceConnected.Store(false)
+
 	redis_repo := NewRedisRepository()
 	defer redis_repo.Close()
 
@@ -68,6 +79,7 @@ func (svc *binanceRepository) ConnectWs() {
 		return
 	}
 
+	binanceConnected.Store(true)
 	slog.Info("The Binance websocket connection has been established successfully")
 
 	for {

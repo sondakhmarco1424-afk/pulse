@@ -5,11 +5,13 @@ import { Send, Terminal, Link, BellRing, Copy, Check } from 'lucide-react';
 interface NotificationLogsProps {
   logs: NotificationLog[];
   onClearLogs: () => void;
+  onSelectSymbol?: (symbol: string) => void;
 }
 
 export default function NotificationLogs({
   logs,
   onClearLogs,
+  onSelectSymbol,
 }: NotificationLogsProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -21,6 +23,9 @@ export default function NotificationLogs({
 
   // Helper to generate the exact Firebase Cloud Messaging JSON payload structure
   const getFCMPayloadString = (log: NotificationLog) => {
+    const symbolMatch = log.body.match(/([A-Z0-9]{3,10}USDT)/i);
+    const symbol = symbolMatch ? symbolMatch[1].toUpperCase() : 'BTCUSDT';
+
     const payload = {
       to: "fcm_client_registration_token_sandbox",
       collapse_key: "price_alert",
@@ -33,7 +38,7 @@ export default function NotificationLogs({
         click_action: log.link
       },
       data: {
-        symbol: log.body.split(' ')[3], // Extract BTCUSDT
+        symbol: symbol,
         triggeredAt: log.timestamp,
         click_action: log.link
       }
@@ -76,10 +81,13 @@ export default function NotificationLogs({
         <div className="flex-1 flex flex-col gap-4 overflow-y-auto max-h-[440px] pr-1">
           {logs.map(log => {
             const payloadStr = log.rawPayload || getFCMPayloadString(log);
+            const symbolMatch = log.body.match(/([A-Z0-9]{3,10}USDT)/i);
+            const symbol = symbolMatch ? symbolMatch[1].toUpperCase() : 'BTCUSDT';
+
             return (
               <div
                 key={log.id}
-                className="bg-zinc-950 border border-zinc-800/80 rounded overflow-hidden shadow-inner flex flex-col"
+                className="bg-zinc-950 border border-zinc-800/80 rounded overflow-hidden shadow-inner flex flex-col group hover:border-zinc-700 transition-colors"
               >
                 {/* Log bar */}
                 <div className="bg-zinc-900 px-4 py-2 flex items-center justify-between border-b border-zinc-800/80">
@@ -88,6 +96,14 @@ export default function NotificationLogs({
                     <span className="text-[10px] font-mono text-zinc-400">
                       fcm_broadcast_received
                     </span>
+                    {onSelectSymbol && (
+                      <button
+                        onClick={() => onSelectSymbol(symbol)}
+                        className="text-[9px] font-mono text-emerald-400 hover:underline ml-2 cursor-pointer"
+                      >
+                        View {symbol} Chart →
+                      </button>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <button

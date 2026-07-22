@@ -53,6 +53,12 @@ func (svc *alertsService) CreateAlert(ctx context.Context, data models.AlertsReq
 		return nil, fmt.Errorf("invalid trigger direction: %s", data.TriggerDirection)
 	}
 
+	// 2. Binance Connection Check
+	binanceRepo := repository.NewBinanceRepository()
+	if !binanceRepo.IsConnected() {
+		return nil, fmt.Errorf("cannot connect to Binance: creating alerts and sending notifications is disabled")
+	}
+
 	// 2. Pre-check: Verify no existing active (PENDING) alerts for this symbol + requester
 	// Leverage modular design: retrieve from repo, then run condition checks in the service
 	existing, err := alertsRepo.GetPendingAlerts(ctx, requester, symbol)

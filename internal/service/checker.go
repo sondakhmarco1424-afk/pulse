@@ -115,9 +115,15 @@ func (c *goLiveChecker) evaluateTick(ctx context.Context, payload string, alerts
 				}
 
 				// Publish to Kafka notifications topic
+				fcmSvc := NewFCMNotificationService()
 				producer, err := app.NewKafkaProducer(app.ProducerKafkaConfigMap())
 				if err != nil {
-					slog.Error("Failed to create Kafka producer to dispatch notification", "error", err)
+					slog.Error("Failed to create Kafka producer, sending notification directly via FCM", "error", err)
+					if sendErr := fcmSvc.Send(ctx, kafkaPayload); sendErr != nil {
+						slog.Error("Direct FCM fallback failed", "error", sendErr)
+					} else {
+						slog.Info("Dispatched alert notification directly via FCM fallback", "alert_id", alert.ID)
+					}
 					continue
 				}
 
@@ -129,7 +135,12 @@ func (c *goLiveChecker) evaluateTick(ctx context.Context, payload string, alerts
 
 				err = producer.SyncMessage(config.Kafka.FCMNotificationsTopic, string(msgBytes))
 				if err != nil {
-					slog.Error("Failed to publish notification payload to Kafka", "error", err)
+					slog.Error("Failed to publish notification payload to Kafka, falling back to direct FCM", "error", err)
+					if sendErr := fcmSvc.Send(ctx, kafkaPayload); sendErr != nil {
+						slog.Error("Direct FCM fallback failed", "error", sendErr)
+					} else {
+						slog.Info("Dispatched alert notification directly via FCM fallback", "alert_id", alert.ID)
+					}
 				} else {
 					slog.Info("Dispatched alert notification to Kafka topic", "topic", config.Kafka.FCMNotificationsTopic, "alert_id", alert.ID)
 				}

@@ -35,9 +35,10 @@ interface ToastItemProps {
   key?: string | number;
   toast: NotificationLog;
   onClose: (id: string) => void;
+  onSelectSymbol: (symbol: string) => void;
 }
 
-function ToastItem({ toast, onClose }: ToastItemProps) {
+function ToastItem({ toast, onClose, onSelectSymbol }: ToastItemProps) {
   useEffect(() => {
     const timer = setTimeout(() => {
       onClose(toast.id);
@@ -45,13 +46,22 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
     return () => clearTimeout(timer);
   }, [toast.id, onClose]);
 
+  const symbolMatch = toast.body.match(/([A-Z0-9]{3,10}USDT)/i);
+  const symbol = symbolMatch ? symbolMatch[1].toUpperCase() : 'BTCUSDT';
+
+  const handleClick = () => {
+    onSelectSymbol(symbol);
+    onClose(toast.id);
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 50, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95, x: 100 }}
       transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-      className="bg-[#0A0A0B] border border-zinc-800 p-5 rounded-lg shadow-2xl flex flex-col gap-2.5 relative overflow-hidden"
+      onClick={handleClick}
+      className="bg-[#0A0A0B] border border-zinc-800 p-5 rounded-lg shadow-2xl flex flex-col gap-2.5 relative overflow-hidden cursor-pointer hover:border-zinc-700 transition-all group"
     >
       <div className="absolute top-0 left-0 right-0 h-[2px] bg-emerald-500" />
 
@@ -64,7 +74,10 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
           <span className="text-[11px] text-white font-medium font-serif italic">PulseCrypto Alert</span>
         </div>
         <button
-          onClick={() => onClose(toast.id)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose(toast.id);
+          }}
           className="text-zinc-500 hover:text-white p-1 rounded hover:bg-zinc-900 transition-colors cursor-pointer"
         >
           <X className="w-3.5 h-3.5" />
@@ -72,9 +85,12 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
       </div>
 
       {/* Message Payload */}
-      <p className="text-[11px] text-zinc-400 leading-normal font-sans">
+      <p className="text-[11px] text-zinc-400 leading-normal font-sans group-hover:text-zinc-200 transition-colors">
         {toast.body}
       </p>
+      <span className="text-[9px] font-mono text-emerald-400 tracking-wider flex items-center gap-1 mt-0.5">
+        Click to view {symbol} chart →
+      </span>
 
     </motion.div>
   );
@@ -133,13 +149,34 @@ export default function App() {
   );
   
   const [alerts, setAlerts] = useState<AlertType[]>([]);
-  const [logs, setLogs] = useState<NotificationLog[]>([]);
+  const [logs, setLogs] = useState<NotificationLog[]>(() => {
+    try {
+      const cached = localStorage.getItem('pulse_notification_logs');
+      const parsed = cached ? JSON.parse(cached) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  });
   const [activeToasts, setActiveToasts] = useState<NotificationLog[]>([]);
+
+  // Sync logs state to localStorage
+  useEffect(() => {
+    try {
+      if (Array.isArray(logs)) {
+        localStorage.setItem('pulse_notification_logs', JSON.stringify(logs.slice(0, 50)));
+      }
+    } catch (e) {
+      console.error('Failed to save logs to localStorage:', e);
+    }
+  }, [logs]);
 
   // Refs for tracking mutable states in event handlers without triggering re-effects
   const alertsRef = useRef<AlertType[]>([]);
   const coinsRef = useRef<CoinInfo[]>([]);
   const chartIntervalRef = useRef(chartInterval);
+  const checkAlertsRef = useRef<any>(null);
+  const recentMessageHashesRef = useRef<Map<string, number>>(new Map());
   
   useEffect(() => {
     alertsRef.current = alerts;
@@ -164,10 +201,16 @@ export default function App() {
         console.log('[fetchAlerts] Successfully fetched alerts from Go backend:', rawAlerts);
         let clearedIds: string[] = [];
         try {
-          clearedIds = JSON.parse(localStorage.getItem('cleared_triggered_alerts') || '[]');
+          const parsed = JSON.parse(localStorage.getItem('cleared_triggered_alerts') || '[]');
+          clearedIds = Array.isArray(parsed) ? parsed : [];
         } catch (e) {
           console.warn("Resetting corrupted cleared_triggered_alerts");
           localStorage.removeItem('cleared_triggered_alerts');
+        }
+
+        if (!Array.isArray(rawAlerts)) {
+          console.warn("Expected array of alerts from Go backend but received:", rawAlerts);
+          return;
         }
 
         const loadedAlerts: AlertType[] = rawAlerts
@@ -194,7 +237,7 @@ export default function App() {
         try {
           const parsed = JSON.parse(cached);
           console.log('[fetchAlerts] Loaded alerts from local storage (Demo Mode):', parsed);
-          setAlerts(parsed);
+          setAlerts(Array.isArray(parsed) ? parsed : []);
         } catch (e) {
           console.error('Failed to parse cached alerts', e);
         }
@@ -229,8 +272,8 @@ export default function App() {
     // 3. Add to floating toasts
     setActiveToasts(prev => [newLog, ...prev]);
 
-    // 4. Fire standard Browser Native Push Notification if permitted
-    if ('Notification' in window && Notification.permission === 'granted') {
+    // 4. Fire standard Browser Native Push Notification in Demo/Guest mode only (FCM handles live mode)
+    if ((isDemoMode || !user) && 'Notification' in window && Notification.permission === 'granted') {
       try {
         const notif = new Notification(title, {
           body,
@@ -240,6 +283,9 @@ export default function App() {
         notif.onclick = () => {
           window.focus();
           setActiveSymbol(symbol);
+          try {
+            window.history.pushState({}, '', `/?symbol=${symbol}`);
+          } catch (e) {}
           fetchAlerts();
           notif.close();
         };
@@ -247,7 +293,7 @@ export default function App() {
         console.warn('System push skipped:', err);
       }
     }
-  }, [setActiveSymbol, fetchAlerts]);
+  }, [setActiveSymbol, fetchAlerts, isDemoMode, user]);
 
   // Parse URL search parameters and synchronize alerts state on mount, window focus, visibility change, and history traversal
   useEffect(() => {
@@ -302,6 +348,149 @@ export default function App() {
   // Setup FCM notifications and subscribe device token to Go backend topic
   useEffect(() => {
     if (!isDemoMode) {
+      let swRegistration: ServiceWorkerRegistration | undefined;
+      let unsubscribeFn: (() => void) | undefined;
+
+      // Helper to process payload into UI state
+      const processFCMPayload = (payload: any) => {
+        const dataObj = payload.data || payload.FCM_MSG?.data || payload;
+        const notifObj = payload.notification || payload.FCM_MSG?.notification || {};
+
+        const rawTitle = notifObj.title || dataObj.title || 'Price Alert';
+        const rawBody = notifObj.body || dataObj.body || 'Alert triggered!';
+
+        // Extract symbol via explicit property or regex search
+        let symbol = dataObj.symbol || payload.symbol;
+        if (!symbol) {
+          const match = (rawBody + ' ' + rawTitle).match(/([A-Z0-9]{3,10}USDT)/i);
+          if (match) {
+            symbol = match[1].toUpperCase();
+          }
+        }
+        const upperSymbol = symbol ? symbol.toUpperCase() : '';
+
+        // Standardize title and body
+        const title = rawTitle !== 'Price Alert' ? rawTitle : '🚨 Crypto Alert Triggered!';
+        const body = (rawBody && rawBody !== 'Alert triggered!' && rawBody !== 'Alert condition met!')
+          ? rawBody
+          : (upperSymbol ? `The currency ${upperSymbol} crossed threshold.` : rawBody);
+
+        const msgKey = payload.messageId || payload.fcmMessageId || `${upperSymbol}_${body}`;
+
+        const now = Date.now();
+        recentMessageHashesRef.current.forEach((ts, key) => {
+          if (now - ts > 10000) recentMessageHashesRef.current.delete(key);
+        });
+
+        if (recentMessageHashesRef.current.has(msgKey)) {
+          console.log('[processFCMPayload] Duplicate payload skipped:', msgKey);
+          return;
+        }
+        recentMessageHashesRef.current.set(msgKey, now);
+
+        playNotificationSound();
+
+        if (upperSymbol) {
+          const exists = COIN_CONFIGS.some(cfg => cfg.symbol === upperSymbol);
+          if (exists) {
+            setActiveSymbol(upperSymbol);
+          }
+        }
+
+        const rawPayloadObj = {
+          from: payload.from || 'projects/pulse-89cd2/topics/user_alerts',
+          messageId: msgKey,
+          priority: 'high',
+          collapseKey: payload.collapseKey || 'price_alert',
+          data: {
+            title: title,
+            body: body,
+            symbol: upperSymbol || 'BTCUSDT',
+            price: dataObj.price || ''
+          },
+          notification: {
+            title: title,
+            body: body,
+            icon: '/favicon.ico'
+          }
+        };
+
+        const rawPayloadStr = JSON.stringify(rawPayloadObj, null, 2);
+
+        setLogs(prev => {
+          const exists = prev.some(log => (log.body === body || (upperSymbol && log.body.includes(upperSymbol))) && Date.now() - new Date(log.timestamp).getTime() < 5000);
+          if (exists) return prev;
+          const newLog = {
+            id: Math.random().toString(36).substring(2, 9),
+            title: title,
+            body: body,
+            timestamp: new Date().toISOString(),
+            read: false,
+            rawPayload: rawPayloadStr,
+          };
+          return [newLog, ...prev];
+        });
+
+        setActiveToasts(prev => {
+          const exists = prev.some(log => (log.body === body || (upperSymbol && log.body.includes(upperSymbol))) && Date.now() - new Date(log.timestamp).getTime() < 5000);
+          if (exists) return prev;
+          const newLog = {
+            id: Math.random().toString(36).substring(2, 9),
+            title: title,
+            body: body,
+            timestamp: new Date().toISOString(),
+            read: false,
+            rawPayload: rawPayloadStr,
+          };
+          return [newLog, ...prev];
+        });
+
+        fetchAlerts();
+      };
+
+      // Register SW message listener synchronously on mount
+      const handleSWMessage = (event: MessageEvent) => {
+        if (!event.data) return;
+
+        if (event.data.type === 'FCM_NOTIFICATION_CLICK') {
+          console.log('FCM Notification Click received via SW:', event.data);
+          let symbol = event.data.symbol || event.data.payload?.symbol || event.data.payload?.data?.symbol;
+          if (!symbol) {
+            const searchText = (event.data.payload?.body || '') + ' ' + (event.data.payload?.notification?.body || '') + ' ' + (event.data.payload?.title || '');
+            const match = searchText.match(/([A-Z0-9]{3,10}USDT)/i);
+            if (match) {
+              symbol = match[1].toUpperCase();
+            }
+          }
+
+          if (symbol) {
+            const upperSymbol = symbol.toUpperCase();
+            const exists = COIN_CONFIGS.some(cfg => cfg.symbol === upperSymbol);
+            if (exists) {
+              setActiveSymbol(upperSymbol);
+              try {
+                window.history.pushState({}, '', `/?symbol=${upperSymbol}`);
+              } catch (e) {
+                console.warn('Failed to update URL history:', e);
+              }
+            }
+          }
+          fetchAlerts();
+          return;
+        }
+
+        if (event.data.type === 'FCM_BACKGROUND_MESSAGE') {
+          console.log('FCM Background Message received via SW:', event.data.payload);
+          if (event.data.payload) {
+            processFCMPayload(event.data.payload);
+          }
+        }
+      };
+
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('message', handleSWMessage);
+      }
+
       const initFCM = async () => {
         try {
           const permission = await Notification.requestPermission();
@@ -310,9 +499,29 @@ export default function App() {
             return;
           }
 
-          const token = await getToken(messaging, {
-            vapidKey: 'BOS3cdGU65M5dCHzgdLCE82-90ifQbEMKtUbP4trprrXsR2P1Y-YDJtpBzOjrfrChZ9jI0jkhWUn23Jbc-ixtIo'
-          });
+          if ('serviceWorker' in navigator) {
+            swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+            await navigator.serviceWorker.ready;
+          }
+
+          let token: string | undefined;
+          const vapidKey = (import.meta as any).env?.VITE_FIREBASE_VAPID_KEY || 'BOS3cdGU65M5dCHzgdLCE82-90ifQbEMKtUbP4trprrXsR2P1Y-YDJtpBzOjrfrChZ9jI0jkhWUn23Jbc-ixtIo';
+
+          try {
+            token = await getToken(messaging, {
+              vapidKey,
+              serviceWorkerRegistration: swRegistration,
+            });
+          } catch (tokenErr) {
+            console.warn('FCM getToken with VAPID key failed, attempting fallback without VAPID key:', tokenErr);
+            try {
+              token = await getToken(messaging, {
+                serviceWorkerRegistration: swRegistration,
+              });
+            } catch (fallbackErr) {
+              console.error('FCM token retrieval fallback failed:', fallbackErr);
+            }
+          }
 
           if (token) {
             console.log('FCM Registration Token:', token);
@@ -330,50 +539,27 @@ export default function App() {
           }
 
           // Handle foreground message
-          const unsubscribe = onMessage(messaging, (payload) => {
+          unsubscribeFn = onMessage(messaging, (payload) => {
             console.log('FCM Foreground message received:', payload);
-            if (payload.data) {
-              const body = payload.data.body || 'Alert triggered!';
-              
-              // Play notification sound
-              playNotificationSound();
-              
-              const newLog = {
-                id: Math.random().toString(36).substring(2, 9),
-                title: payload.data.title || 'Price Alert',
-                body: body,
-                timestamp: new Date().toISOString(),
-                read: false,
-                rawPayload: JSON.stringify({
-                  from: payload.from,
-                  messageId: payload.messageId,
-                  collapseKey: payload.collapseKey,
-                  data: payload.data,
-                  notification: payload.notification
-                }, null, 2),
-              };
-              setLogs(prev => [newLog, ...prev]);
-              setActiveToasts(prev => [newLog, ...prev]);
-
-              // Refetch alerts list to update status without polling
-              fetchAlerts();
+            if (payload.data || payload.notification) {
+              processFCMPayload(payload);
             }
           });
-          return unsubscribe;
         } catch (err) {
           console.error('Error setting up FCM on client:', err);
         }
       };
 
-      let unsubscribeFn: (() => void) | undefined;
-      initFCM().then(fn => {
-        unsubscribeFn = fn;
-      });
+      initFCM();
+
       return () => {
         if (unsubscribeFn) unsubscribeFn();
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.removeEventListener('message', handleSWMessage);
+        }
       };
     }
-  }, [user, isDemoMode, triggerPushAlert, fetchAlerts]);
+  }, [user, isDemoMode, triggerPushAlert, fetchAlerts, API_BASE_URL]);
 
   // Sync Local Storage alerts in Demo mode
   const syncDemoAlerts = (updated: AlertType[]) => {
@@ -383,25 +569,41 @@ export default function App() {
     }
   };
 
-  // Initialize Historical Data for all 4 coins
-  useEffect(() => {
-    const loadAllHistory = async () => {
-      const updatedCoins = await Promise.all(
-        coinsRef.current.map(async (coin) => {
-          const history = await fetchInitialHistory(coin.symbol, chartInterval);
-          const ticker = await fetchTicker24h(coin.symbol);
-          return {
-            ...coin,
-            ...ticker,
-            history: history.slice(-100), // Enforce maximum of 100 prices
-          };
-        })
-      );
-      setCoins(updatedCoins);
-    };
+  // Initialize & reload Historical Data for all 4 coins
+  const loadAllHistory = useCallback(async () => {
+    const updatedCoins = await Promise.all(
+      coinsRef.current.map(async (coin) => {
+        const history = await fetchInitialHistory(coin.symbol, chartIntervalRef.current);
+        const ticker = await fetchTicker24h(coin.symbol);
 
+        // Preserve existing history if REST API fetch returned empty while offline
+        const newHistory = (history && history.length > 0)
+          ? history.slice(-100)
+          : (coin.history && coin.history.length > 0 ? coin.history : []);
+
+        const currentPrice = ticker.currentPrice > 0 ? ticker.currentPrice : coin.currentPrice;
+
+        return {
+          ...coin,
+          ...ticker,
+          currentPrice,
+          history: newHistory,
+        };
+      })
+    );
+    setCoins(updatedCoins);
+  }, []);
+
+  useEffect(() => {
     loadAllHistory();
-  }, [chartInterval]);
+  }, [chartInterval, loadAllHistory]);
+
+  // Re-fetch historical klines whenever Binance connection is restored to 'connected'
+  useEffect(() => {
+    if (connectionStatus === 'connected') {
+      loadAllHistory();
+    }
+  }, [connectionStatus, loadAllHistory]);
 
   // Request browser Notification permissions on mount
   useEffect(() => {
@@ -446,11 +648,69 @@ export default function App() {
     });
   }, [user, isDemoMode, triggerPushAlert]);
 
-  // Connect to Binance Websocket or Fallback Stream
+  useEffect(() => {
+    checkAlertsRef.current = checkAlerts;
+  }, [checkAlerts]);
+
+  const connectionStatusRef = useRef<'connected' | 'reconnecting' | 'disconnected'>('disconnected');
+  const reconnectRef = useRef<((force?: boolean) => void) | null>(null);
+
+  const updateConnectionStatus = useCallback((status: 'connected' | 'reconnecting' | 'disconnected') => {
+    if (connectionStatusRef.current !== status) {
+      connectionStatusRef.current = status;
+      setConnectionStatus(status);
+    }
+  }, []);
+
+  const handleRetryConnection = useCallback(() => {
+    if (reconnectRef.current) {
+      reconnectRef.current(true);
+    }
+  }, []);
+
+  // Connect to Binance Websocket or Fallback Stream with Automatic Reconnection Loop
   useEffect(() => {
     let ws: WebSocket | null = null;
-    let simInterval: any = null;
-    let isSimulating = false;
+    let connectTimeoutTimer: any = null;
+    let tickWatchdogTimer: any = null;
+    let isMounted = true;
+    let lastConnectTime = 0;
+
+    const resetWatchdog = () => {
+      if (tickWatchdogTimer) {
+        clearTimeout(tickWatchdogTimer);
+        tickWatchdogTimer = null;
+      }
+      if (!isMounted) return;
+
+      // If no price ticks arrive for 3.5 seconds, stream is dead (e.g. VPN dropped midway)
+      tickWatchdogTimer = setTimeout(() => {
+        if (!isMounted) return;
+        console.warn('Binance WebSocket stream watchdog timeout: No price ticks for 3.5s (VPN dropped).');
+        if (ws) {
+          ws.onopen = null;
+          ws.onmessage = null;
+          ws.onerror = null;
+          ws.onclose = null;
+          try { ws.close(); } catch (e) {}
+          ws = null;
+        }
+        handleConnectionFailure();
+      }, 3500);
+    };
+
+    const handleConnectionFailure = () => {
+      if (!isMounted) return;
+      if (connectTimeoutTimer) {
+        clearTimeout(connectTimeoutTimer);
+        connectTimeoutTimer = null;
+      }
+      if (tickWatchdogTimer) {
+        clearTimeout(tickWatchdogTimer);
+        tickWatchdogTimer = null;
+      }
+      updateConnectionStatus('disconnected');
+    };
 
     const handleTickUpdate = (symbol: string, price: number, changePercent: number, high: number, low: number) => {
       const currentInterval = chartIntervalRef.current;
@@ -460,20 +720,6 @@ export default function App() {
         prevCoins.map(coin => {
           if (coin.symbol === symbol) {
             const updatedHistory = [...coin.history];
-            
-            // Generate some clean initial history if history is empty
-            if (updatedHistory.length === 0) {
-              const basePrice = symbol === 'BTCUSDT' ? 64200 : symbol === 'ETHUSDT' ? 3440 : symbol === 'BNBUSDT' ? 585 : 140;
-              const now = Date.now();
-              for (let i = 50; i >= 1; i--) {
-                const tStr = new Date(now - i * 5000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                const noise = (Math.sin(i / 10) + Math.cos(i / 5)) * (basePrice * 0.001);
-                updatedHistory.push({
-                  time: tStr,
-                  price: Number((basePrice + noise).toFixed(2)),
-                });
-              }
-            }
 
             const lastPoint = updatedHistory[updatedHistory.length - 1];
             if (lastPoint && lastPoint.time === intervalTimeStr) {
@@ -496,62 +742,89 @@ export default function App() {
       );
 
       // Check alerts instantly
-      checkAlerts(symbol, price);
+      if (checkAlertsRef.current) {
+        checkAlertsRef.current(symbol, price);
+      }
     };
 
-    const startSimulation = () => {
-      if (isSimulating) return;
-      isSimulating = true;
-      setConnectionStatus('connected');
-      console.warn('Binance WebSocket fallback active. Sandbox secure simulation stream engaged.');
+    const connectWebSocket = (force = false) => {
+      if (!isMounted) return;
 
-      // Update coins periodically with realistic Brownian walk
-      simInterval = setInterval(() => {
-        const activeSymbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT'];
-        
-        activeSymbols.forEach(symbol => {
-          if (Math.random() > 0.3) {
-            setCoins(currentCoins => {
-              const coin = currentCoins.find(c => c.symbol === symbol);
-              if (!coin) return currentCoins;
+      // If socket is already open and active, ensure status is connected and exit
+      if (!force && ws && ws.readyState === WebSocket.OPEN && connectionStatusRef.current === 'connected') {
+        return;
+      }
 
-              const currentPrice = coin.currentPrice > 0 ? coin.currentPrice : (symbol === 'BTCUSDT' ? 64281.40 : symbol === 'ETHUSDT' ? 3452.12 : symbol === 'BNBUSDT' ? 589.30 : 142.05);
-              const change24h = coin.change24h !== 0 ? coin.change24h : 1.45;
-              const high24h = coin.high24h > 0 ? coin.high24h : currentPrice * 1.01;
-              const low24h = coin.low24h > 0 ? coin.low24h : currentPrice * 0.99;
+      const now = Date.now();
+      if (!force && now - lastConnectTime < 1500) {
+        return;
+      }
+      lastConnectTime = now;
 
-              const drift = (Math.random() - 0.495) * 0.001;
-              const nextPrice = Number((currentPrice * (1 + drift)).toFixed(2));
-              const nextChange = Number((change24h + drift * 100).toFixed(2));
-              const nextHigh = Math.max(high24h, nextPrice);
-              const nextLow = Math.min(low24h, nextPrice);
+      // Clear any pending timers
+      if (connectTimeoutTimer) {
+        clearTimeout(connectTimeoutTimer);
+        connectTimeoutTimer = null;
+      }
+      if (tickWatchdogTimer) {
+        clearTimeout(tickWatchdogTimer);
+        tickWatchdogTimer = null;
+      }
 
-              setTimeout(() => {
-                handleTickUpdate(symbol, nextPrice, nextChange, nextHigh, nextLow);
-              }, 0);
+      // Close previous dead/closing socket if any
+      if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        try { ws.close(); } catch (e) {}
+        ws = null;
+      }
 
-              return currentCoins;
-            });
-          }
-        });
-      }, 2000);
-    };
-
-    const connectWebSocket = () => {
-      setConnectionStatus('reconnecting');
+      updateConnectionStatus('reconnecting');
       
       try {
         ws = new WebSocket('wss://stream.binance.com:9443/stream?streams=btcusdt@ticker/ethusdt@ticker/bnbusdt@ticker/solusdt@ticker');
 
-        ws.onopen = () => {
-          setConnectionStatus('connected');
-          if (simInterval) {
-            clearInterval(simInterval);
-            isSimulating = false;
+        // 5-second connection timeout guard: fail fast to RED (disconnected) if TCP handshaking stalls
+        connectTimeoutTimer = setTimeout(() => {
+          if (!isMounted) return;
+          if (ws && ws.readyState !== WebSocket.OPEN) {
+            console.warn('Binance WebSocket connection attempt timed out after 5s.');
+            if (ws) {
+              ws.onopen = null;
+              ws.onmessage = null;
+              ws.onerror = null;
+              ws.onclose = null;
+              try { ws.close(); } catch (e) {}
+              ws = null;
+            }
+            handleConnectionFailure();
           }
+        }, 5000);
+
+        ws.onopen = () => {
+          if (!isMounted) return;
+          if (connectTimeoutTimer) {
+            clearTimeout(connectTimeoutTimer);
+            connectTimeoutTimer = null;
+          }
+          console.log('Binance WebSocket connected successfully!');
+          updateConnectionStatus('connected');
+          resetWatchdog();
         };
 
         ws.onmessage = (event) => {
+          if (!isMounted) return;
+          if (connectTimeoutTimer) {
+            clearTimeout(connectTimeoutTimer);
+            connectTimeoutTimer = null;
+          }
+
+          // Receiving live price messages confirms connected status & resets watchdog timer
+          updateConnectionStatus('connected');
+          resetWatchdog();
+
           try {
             const message = JSON.parse(event.data);
             if (!message || !message.data) return;
@@ -570,35 +843,56 @@ export default function App() {
         };
 
         ws.onerror = () => {
-          console.warn('Binance WebSocket is not accessible in this sandbox environment. Engaging secure simulator fallback...');
-          if (ws) ws.close();
-          startSimulation();
+          if (!isMounted) return;
+          console.warn('Binance WebSocket connection failed.');
+          handleConnectionFailure();
         };
 
         ws.onclose = () => {
-          if (!isSimulating) {
-            startSimulation();
-          }
+          if (!isMounted) return;
+          console.warn('Binance WebSocket closed.');
+          handleConnectionFailure();
         };
       } catch (err) {
+        if (!isMounted) return;
+        if (connectTimeoutTimer) {
+          clearTimeout(connectTimeoutTimer);
+          connectTimeoutTimer = null;
+        }
         console.warn('Failed to construct Binance WebSocket:', err);
-        startSimulation();
+        handleConnectionFailure();
       }
     };
 
+    reconnectRef.current = connectWebSocket;
     connectWebSocket();
 
+    // Trigger immediate reconnect when browser network comes online or window gains focus (e.g. after turning on VPN)
+    const handleOnlineOrFocus = () => {
+      if (isMounted && (!ws || ws.readyState !== WebSocket.OPEN)) {
+        console.log('Network online or window focused — attempting to reconnect to Binance...');
+        connectWebSocket();
+      }
+    };
+
+    window.addEventListener('online', handleOnlineOrFocus);
+    window.addEventListener('focus', handleOnlineOrFocus);
+
     return () => {
+      isMounted = false;
+      if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
+      if (tickWatchdogTimer) clearTimeout(tickWatchdogTimer);
+      window.removeEventListener('online', handleOnlineOrFocus);
+      window.removeEventListener('focus', handleOnlineOrFocus);
       if (ws) {
         ws.onopen = null;
         ws.onmessage = null;
         ws.onerror = null;
         ws.onclose = null;
-        ws.close();
+        try { ws.close(); } catch (e) {}
       }
-      if (simInterval) clearInterval(simInterval);
     };
-  }, [checkAlerts]);
+  }, []);
 
   // Handler: Create alert
   const handleCreateAlert = async (symbol: string, condition: 'ABOVE' | 'BELOW', priceThreshold: number) => {
@@ -727,6 +1021,7 @@ export default function App() {
       <Header
         user={user}
         connectionStatus={connectionStatus}
+        onRetryConnection={handleRetryConnection}
       />
 
       {/* Main Bento Layout */}
@@ -755,6 +1050,8 @@ export default function App() {
             onCreateAlert={handleCreateAlert}
             isDemoMode={isDemoMode}
             user={user}
+            connectionStatus={connectionStatus}
+            onRetryConnection={handleRetryConnection}
           />
         </div>
 
@@ -776,10 +1073,30 @@ export default function App() {
               onDeleteAlert={handleDeleteAlert}
               coins={coins}
               onClearAllTriggeredAlerts={handleClearAllTriggeredAlerts}
+              onSelectSymbol={(sym) => {
+                const upper = sym.toUpperCase();
+                const exists = COIN_CONFIGS.some(cfg => cfg.symbol === upper);
+                if (exists) {
+                  setActiveSymbol(upper);
+                  try {
+                    window.history.pushState({}, '', `/?symbol=${upper}`);
+                  } catch (e) {}
+                }
+              }}
             />
             <NotificationLogs
               logs={logs}
               onClearLogs={() => setLogs([])}
+              onSelectSymbol={(sym) => {
+                const upper = sym.toUpperCase();
+                const exists = COIN_CONFIGS.some(cfg => cfg.symbol === upper);
+                if (exists) {
+                  setActiveSymbol(upper);
+                  try {
+                    window.history.pushState({}, '', `/?symbol=${upper}`);
+                  } catch (e) {}
+                }
+              }}
             />
           </div>
         </div>
@@ -818,6 +1135,16 @@ export default function App() {
               key={toast.id}
               toast={toast}
               onClose={handleCloseToast}
+              onSelectSymbol={(sym) => {
+                const upper = sym.toUpperCase();
+                const exists = COIN_CONFIGS.some(cfg => cfg.symbol === upper);
+                if (exists) {
+                  setActiveSymbol(upper);
+                  try {
+                    window.history.pushState({}, '', `/?symbol=${upper}`);
+                  } catch (e) {}
+                }
+              }}
             />
           ))}
         </AnimatePresence>

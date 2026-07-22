@@ -44,6 +44,8 @@ echo.
 echo Remember to place your Firebase Private Key in:
 echo   internal/config/firebase-service-account.json
 echo.
+echo NOTE: Ensure you are using a VPN if Binance services/APIs are restricted in your location.
+echo.
 echo To run the application, open two terminals:
 echo Terminal 1 (Frontend): cd frontend ^&^& npm run dev
 echo Terminal 2 (Backend):  go run internal/cmd/main.go
