@@ -35,9 +35,10 @@ interface ToastItemProps {
   key?: string | number;
   toast: NotificationLog;
   onClose: (id: string) => void;
+  onSelectSymbol: (symbol: string) => void;
 }
 
-function ToastItem({ toast, onClose }: ToastItemProps) {
+function ToastItem({ toast, onClose, onSelectSymbol }: ToastItemProps) {
   useEffect(() => {
     const timer = setTimeout(() => {
       onClose(toast.id);
@@ -45,13 +46,22 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
     return () => clearTimeout(timer);
   }, [toast.id, onClose]);
 
+  const symbolMatch = toast.body.match(/([A-Z0-9]{3,10}USDT)/i);
+  const symbol = symbolMatch ? symbolMatch[1].toUpperCase() : 'BTCUSDT';
+
+  const handleClick = () => {
+    onSelectSymbol(symbol);
+    onClose(toast.id);
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 50, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95, x: 100 }}
       transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-      className="bg-[#0A0A0B] border border-zinc-800 p-5 rounded-lg shadow-2xl flex flex-col gap-2.5 relative overflow-hidden"
+      onClick={handleClick}
+      className="bg-[#0A0A0B] border border-zinc-800 p-5 rounded-lg shadow-2xl flex flex-col gap-2.5 relative overflow-hidden cursor-pointer hover:border-zinc-700 transition-all group"
     >
       <div className="absolute top-0 left-0 right-0 h-[2px] bg-emerald-500" />
 
@@ -64,7 +74,10 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
           <span className="text-[11px] text-white font-medium font-serif italic">PulseCrypto Alert</span>
         </div>
         <button
-          onClick={() => onClose(toast.id)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose(toast.id);
+          }}
           className="text-zinc-500 hover:text-white p-1 rounded hover:bg-zinc-900 transition-colors cursor-pointer"
         >
           <X className="w-3.5 h-3.5" />
@@ -72,9 +85,12 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
       </div>
 
       {/* Message Payload */}
-      <p className="text-[11px] text-zinc-400 leading-normal font-sans">
+      <p className="text-[11px] text-zinc-400 leading-normal font-sans group-hover:text-zinc-200 transition-colors">
         {toast.body}
       </p>
+      <span className="text-[9px] font-mono text-emerald-400 tracking-wider flex items-center gap-1 mt-0.5">
+        Click to view {symbol} chart →
+      </span>
 
     </motion.div>
   );
@@ -160,6 +176,7 @@ export default function App() {
   const coinsRef = useRef<CoinInfo[]>([]);
   const chartIntervalRef = useRef(chartInterval);
   const checkAlertsRef = useRef<any>(null);
+  const recentMessageHashesRef = useRef<Map<string, number>>(new Map());
   
   useEffect(() => {
     alertsRef.current = alerts;
@@ -255,8 +272,8 @@ export default function App() {
     // 3. Add to floating toasts
     setActiveToasts(prev => [newLog, ...prev]);
 
-    // 4. Fire standard Browser Native Push Notification if permitted
-    if ('Notification' in window && Notification.permission === 'granted') {
+    // 4. Fire standard Browser Native Push Notification in Demo/Guest mode only (FCM handles live mode)
+    if ((isDemoMode || !user) && 'Notification' in window && Notification.permission === 'granted') {
       try {
         const notif = new Notification(title, {
           body,
@@ -266,6 +283,9 @@ export default function App() {
         notif.onclick = () => {
           window.focus();
           setActiveSymbol(symbol);
+          try {
+            window.history.pushState({}, '', `/?symbol=${symbol}`);
+          } catch (e) {}
           fetchAlerts();
           notif.close();
         };
@@ -273,7 +293,7 @@ export default function App() {
         console.warn('System push skipped:', err);
       }
     }
-  }, [setActiveSymbol, fetchAlerts]);
+  }, [setActiveSymbol, fetchAlerts, isDemoMode, user]);
 
   // Parse URL search parameters and synchronize alerts state on mount, window focus, visibility change, and history traversal
   useEffect(() => {
@@ -333,14 +353,44 @@ export default function App() {
 
       // Helper to process payload into UI state
       const processFCMPayload = (payload: any) => {
-        const title = payload.notification?.title || payload.data?.title || 'Price Alert';
-        const body = payload.notification?.body || payload.data?.body || 'Alert triggered!';
+        const dataObj = payload.data || payload.FCM_MSG?.data || payload;
+        const notifObj = payload.notification || payload.FCM_MSG?.notification || {};
+
+        const rawTitle = notifObj.title || dataObj.title || 'Price Alert';
+        const rawBody = notifObj.body || dataObj.body || 'Alert triggered!';
+
+        // Extract symbol via explicit property or regex search
+        let symbol = dataObj.symbol || payload.symbol;
+        if (!symbol) {
+          const match = (rawBody + ' ' + rawTitle).match(/([A-Z0-9]{3,10}USDT)/i);
+          if (match) {
+            symbol = match[1].toUpperCase();
+          }
+        }
+        const upperSymbol = symbol ? symbol.toUpperCase() : '';
+
+        // Standardize title and body
+        const title = rawTitle !== 'Price Alert' ? rawTitle : '🚨 Crypto Alert Triggered!';
+        const body = (rawBody && rawBody !== 'Alert triggered!' && rawBody !== 'Alert condition met!')
+          ? rawBody
+          : (upperSymbol ? `The currency ${upperSymbol} crossed threshold.` : rawBody);
+
+        const msgKey = payload.messageId || payload.fcmMessageId || `${upperSymbol}_${body}`;
+
+        const now = Date.now();
+        recentMessageHashesRef.current.forEach((ts, key) => {
+          if (now - ts > 10000) recentMessageHashesRef.current.delete(key);
+        });
+
+        if (recentMessageHashesRef.current.has(msgKey)) {
+          console.log('[processFCMPayload] Duplicate payload skipped:', msgKey);
+          return;
+        }
+        recentMessageHashesRef.current.set(msgKey, now);
 
         playNotificationSound();
 
-        const symbol = payload.data?.symbol;
-        if (symbol) {
-          const upperSymbol = symbol.toUpperCase();
+        if (upperSymbol) {
           const exists = COIN_CONFIGS.some(cfg => cfg.symbol === upperSymbol);
           if (exists) {
             setActiveSymbol(upperSymbol);
@@ -349,14 +399,14 @@ export default function App() {
 
         const rawPayloadObj = {
           from: payload.from || 'projects/pulse-89cd2/topics/user_alerts',
-          messageId: payload.messageId || `msg_${Math.random().toString(36).substring(2, 9)}`,
+          messageId: msgKey,
           priority: 'high',
           collapseKey: payload.collapseKey || 'price_alert',
-          data: payload.data || {
+          data: {
             title: title,
             body: body,
-            symbol: symbol || 'BTCUSDT',
-            price: payload.data?.price || ''
+            symbol: upperSymbol || 'BTCUSDT',
+            price: dataObj.price || ''
           },
           notification: {
             title: title,
@@ -368,7 +418,7 @@ export default function App() {
         const rawPayloadStr = JSON.stringify(rawPayloadObj, null, 2);
 
         setLogs(prev => {
-          const exists = prev.some(log => log.body === body && Date.now() - new Date(log.timestamp).getTime() < 2500);
+          const exists = prev.some(log => (log.body === body || (upperSymbol && log.body.includes(upperSymbol))) && Date.now() - new Date(log.timestamp).getTime() < 5000);
           if (exists) return prev;
           const newLog = {
             id: Math.random().toString(36).substring(2, 9),
@@ -382,7 +432,7 @@ export default function App() {
         });
 
         setActiveToasts(prev => {
-          const exists = prev.some(log => log.body === body && Date.now() - new Date(log.timestamp).getTime() < 2500);
+          const exists = prev.some(log => (log.body === body || (upperSymbol && log.body.includes(upperSymbol))) && Date.now() - new Date(log.timestamp).getTime() < 5000);
           if (exists) return prev;
           const newLog = {
             id: Math.random().toString(36).substring(2, 9),
@@ -400,8 +450,37 @@ export default function App() {
 
       // Register SW message listener synchronously on mount
       const handleSWMessage = (event: MessageEvent) => {
-        if (event.data && (event.data.type === 'FCM_BACKGROUND_MESSAGE' || event.data.type === 'FCM_NOTIFICATION_CLICK')) {
-          console.log(`FCM Message (${event.data.type}) received via SW:`, event.data.payload);
+        if (!event.data) return;
+
+        if (event.data.type === 'FCM_NOTIFICATION_CLICK') {
+          console.log('FCM Notification Click received via SW:', event.data);
+          let symbol = event.data.symbol || event.data.payload?.symbol || event.data.payload?.data?.symbol;
+          if (!symbol) {
+            const searchText = (event.data.payload?.body || '') + ' ' + (event.data.payload?.notification?.body || '') + ' ' + (event.data.payload?.title || '');
+            const match = searchText.match(/([A-Z0-9]{3,10}USDT)/i);
+            if (match) {
+              symbol = match[1].toUpperCase();
+            }
+          }
+
+          if (symbol) {
+            const upperSymbol = symbol.toUpperCase();
+            const exists = COIN_CONFIGS.some(cfg => cfg.symbol === upperSymbol);
+            if (exists) {
+              setActiveSymbol(upperSymbol);
+              try {
+                window.history.pushState({}, '', `/?symbol=${upperSymbol}`);
+              } catch (e) {
+                console.warn('Failed to update URL history:', e);
+              }
+            }
+          }
+          fetchAlerts();
+          return;
+        }
+
+        if (event.data.type === 'FCM_BACKGROUND_MESSAGE') {
+          console.log('FCM Background Message received via SW:', event.data.payload);
           if (event.data.payload) {
             processFCMPayload(event.data.payload);
           }
@@ -422,12 +501,27 @@ export default function App() {
 
           if ('serviceWorker' in navigator) {
             swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+            await navigator.serviceWorker.ready;
           }
 
-          const token = await getToken(messaging, {
-            vapidKey: 'BOS3cdGU65M5dCHzgdLCE82-90ifQbEMKtUbP4trprrXsR2P1Y-YDJtpBzOjrfrChZ9jI0jkhWUn23Jbc-ixtIo',
-            serviceWorkerRegistration: swRegistration,
-          });
+          let token: string | undefined;
+          const vapidKey = (import.meta as any).env?.VITE_FIREBASE_VAPID_KEY || 'BOS3cdGU65M5dCHzgdLCE82-90ifQbEMKtUbP4trprrXsR2P1Y-YDJtpBzOjrfrChZ9jI0jkhWUn23Jbc-ixtIo';
+
+          try {
+            token = await getToken(messaging, {
+              vapidKey,
+              serviceWorkerRegistration: swRegistration,
+            });
+          } catch (tokenErr) {
+            console.warn('FCM getToken with VAPID key failed, attempting fallback without VAPID key:', tokenErr);
+            try {
+              token = await getToken(messaging, {
+                serviceWorkerRegistration: swRegistration,
+              });
+            } catch (fallbackErr) {
+              console.error('FCM token retrieval fallback failed:', fallbackErr);
+            }
+          }
 
           if (token) {
             console.log('FCM Registration Token:', token);
@@ -979,10 +1073,30 @@ export default function App() {
               onDeleteAlert={handleDeleteAlert}
               coins={coins}
               onClearAllTriggeredAlerts={handleClearAllTriggeredAlerts}
+              onSelectSymbol={(sym) => {
+                const upper = sym.toUpperCase();
+                const exists = COIN_CONFIGS.some(cfg => cfg.symbol === upper);
+                if (exists) {
+                  setActiveSymbol(upper);
+                  try {
+                    window.history.pushState({}, '', `/?symbol=${upper}`);
+                  } catch (e) {}
+                }
+              }}
             />
             <NotificationLogs
               logs={logs}
               onClearLogs={() => setLogs([])}
+              onSelectSymbol={(sym) => {
+                const upper = sym.toUpperCase();
+                const exists = COIN_CONFIGS.some(cfg => cfg.symbol === upper);
+                if (exists) {
+                  setActiveSymbol(upper);
+                  try {
+                    window.history.pushState({}, '', `/?symbol=${upper}`);
+                  } catch (e) {}
+                }
+              }}
             />
           </div>
         </div>
@@ -1021,6 +1135,16 @@ export default function App() {
               key={toast.id}
               toast={toast}
               onClose={handleCloseToast}
+              onSelectSymbol={(sym) => {
+                const upper = sym.toUpperCase();
+                const exists = COIN_CONFIGS.some(cfg => cfg.symbol === upper);
+                if (exists) {
+                  setActiveSymbol(upper);
+                  try {
+                    window.history.pushState({}, '', `/?symbol=${upper}`);
+                  } catch (e) {}
+                }
+              }}
             />
           ))}
         </AnimatePresence>

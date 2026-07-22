@@ -7,9 +7,10 @@ interface AlertListProps {
   onDeleteAlert: (id: string) => void;
   coins: CoinInfo[];
   onClearAllTriggeredAlerts?: () => void;
+  onSelectSymbol?: (symbol: string) => void;
 }
 
-export default function AlertList({ alerts, onDeleteAlert, coins, onClearAllTriggeredAlerts }: AlertListProps) {
+export default function AlertList({ alerts, onDeleteAlert, coins, onClearAllTriggeredAlerts, onSelectSymbol }: AlertListProps) {
   const getCoinMeta = (symbol: string) => {
     const coin = coins.find(c => c.symbol === symbol);
     return {
@@ -60,7 +61,8 @@ export default function AlertList({ alerts, onDeleteAlert, coins, onClearAllTrig
                   return (
                     <div
                       key={alert.id}
-                      className="flex items-center justify-between bg-zinc-900/40 border border-zinc-800/80 hover:border-zinc-700 p-3.5 rounded transition-all"
+                      onClick={() => onSelectSymbol && onSelectSymbol(alert.symbol)}
+                      className="flex items-center justify-between bg-zinc-900/40 border border-zinc-800/80 hover:border-zinc-700 p-3.5 rounded transition-all cursor-pointer group"
                     >
                       <div className="flex items-center gap-3">
                         <div className="flex flex-col">

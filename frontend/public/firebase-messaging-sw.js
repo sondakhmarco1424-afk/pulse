@@ -17,20 +17,27 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw.js] Received background message ', payload);
+
+  const dataPayload = payload.data || payload.FCM_MSG?.data || payload;
+  const notificationTitle = dataPayload.title || payload.notification?.title || "🚨 Crypto Alert Triggered!";
+  const notificationBody = dataPayload.body || payload.notification?.body || "Price threshold crossed.";
   
-  // Extract title and body from data payload (which Go backend uses) or standard notification object
-  const notificationTitle = payload.data?.title || payload.notification?.title || "Crypto Alert!";
-  
+  let symbol = dataPayload.symbol || payload.symbol;
+  if (!symbol) {
+    const match = (notificationBody + ' ' + notificationTitle).match(/([A-Z0-9]{3,10}USDT)/i);
+    if (match) symbol = match[1].toUpperCase();
+  }
+
   const notificationOptions = {
-    body: payload.data?.body || payload.notification?.body || "Price alert triggered.",
+    body: notificationBody,
     icon: '/favicon.ico',
-    tag: 'price-alert',
+    tag: symbol ? `alert-${symbol}` : 'price-alert',
     renotify: true,
     data: {
-      symbol: payload.data?.symbol,
-      price: payload.data?.price,
+      symbol: symbol,
+      price: dataPayload.price,
       title: notificationTitle,
-      body: payload.data?.body || payload.notification?.body || "Price alert triggered.",
+      body: notificationBody,
       rawPayload: payload
     }
   };
@@ -45,15 +52,25 @@ messaging.onBackgroundMessage((payload) => {
     });
   });
 
-  self.registration.showNotification(notificationTitle, notificationOptions);
+  return self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
-  const notificationData = event.notification.data || {};
-  const symbol = notificationData.symbol;
+  const rawData = event.notification.data || {};
+  const dataPayload = rawData.FCM_MSG?.data || rawData.data || rawData;
+  let symbol = dataPayload.symbol || rawData.symbol;
+
+  if (!symbol) {
+    const textToSearch = (event.notification.body || '') + ' ' + (event.notification.title || '');
+    const match = textToSearch.match(/([A-Z0-9]{3,10}USDT)/i);
+    if (match) {
+      symbol = match[1].toUpperCase();
+    }
+  }
+
   const urlToOpen = symbol ? `${self.location.origin}/?symbol=${encodeURIComponent(symbol)}` : self.location.origin;
-  
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(windowClients) {
       const urlObj = new URL(urlToOpen, self.location.origin);
@@ -65,15 +82,16 @@ self.addEventListener('notificationclick', function(event) {
           const clientUrlObj = new URL(client.url);
           const clientOriginPath = clientUrlObj.origin + clientUrlObj.pathname;
           
-          if (clientOriginPath === targetOriginPath && 'focus' in client) {
+          if (clientOriginPath === targetOriginPath) {
             client.postMessage({
               type: 'FCM_NOTIFICATION_CLICK',
-              payload: notificationData.rawPayload || {
-                data: notificationData,
-                notification: { title: notificationData.title, body: notificationData.body }
-              }
+              symbol: symbol,
+              urlToOpen: urlToOpen,
+              payload: dataPayload
             });
-            return client.focus();
+            if ('focus' in client) {
+              return client.focus();
+            }
           }
         } catch (e) {
           console.error('Error comparing client URLs:', e);

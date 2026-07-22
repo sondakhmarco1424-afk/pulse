@@ -119,6 +119,9 @@ func (repo *firebaseRepository) resolveServiceAccountKey(credFile string) (strin
 	candidates = append(candidates, strings.TrimSpace(repo.credFile))
 	candidates = append(candidates, strings.TrimSpace(os.Getenv("FIREBASE_SERVICE_ACCOUNT_KEY")))
 	candidates = append(candidates,
+		"internal/config/firebase-service-account.json",
+		"./internal/config/firebase-service-account.json",
+		"../internal/config/firebase-service-account.json",
 		"/secrets/firebase_service_account_key.json",
 		"/secrets/firebase/gcp.json",
 		"./docker/google-cloud/firebase/gcp.json",
