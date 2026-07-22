@@ -145,8 +145,12 @@ func (svc *alertController) SubscribeFCM(ctx *gin.Context) {
 		return
 	}
 
-	if val, exists := ctx.Get("requester_email"); exists {
-		request.Email = val.(string)
+	if request.Email == "" {
+		if val, exists := ctx.Get("requester_email"); exists {
+			if emailStr, ok := val.(string); ok && emailStr != "" {
+				request.Email = emailStr
+			}
+		}
 	}
 
 	fcmService := service.NewFCMNotificationService()

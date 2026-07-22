@@ -237,5 +237,16 @@ func TestCreateAlertValidation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "invalid requester email format") {
 		t.Errorf("expected invalid email format error, got %v", err)
 	}
+
+	// 3. Test Binance disconnected error
+	_, err = svc.CreateAlert(ctx, models.AlertsRequestRaw{
+		Requester:        "user@example.com",
+		Symbol:           "BTCUSDT",
+		Price:            "100.0",
+		TriggerDirection: "ABOVE",
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot connect to Binance") {
+		t.Errorf("expected cannot connect to Binance error when disconnected, got %v", err)
+	}
 }
 

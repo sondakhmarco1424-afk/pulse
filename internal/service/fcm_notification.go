@@ -66,6 +66,15 @@ func (svc *fcmNotificationService) Send(ctx context.Context, payload models.Aler
 		out[k] = v
 	}
 
+	title := out["title"]
+	if title == "" {
+		title = "Price Alert Triggered"
+	}
+	body := out["body"]
+	if body == "" {
+		body = "Alert condition met!"
+	}
+
 	message := &messaging.Message{
 		Topic: *topic,
 		Data:  out,

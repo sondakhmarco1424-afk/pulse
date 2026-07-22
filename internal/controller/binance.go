@@ -13,6 +13,7 @@ import (
 type (
 	BinanceController interface {
 		GetSubscribedSymbolsHistory(ctx *gin.Context)
+		GetStatus(ctx *gin.Context)
 	}
 	binanceController struct {
 	}
@@ -20,6 +21,18 @@ type (
 
 func NewBinanceController() BinanceController {
 	return &binanceController{}
+}
+
+// GetStatus godoc
+// @Summary Get current Binance WebSocket connection status
+// @Description Returns whether the Go backend is currently connected to Binance WebSocket.
+// @Tags Binance
+// @Produce json
+// @Success 200 {object} map[string]bool "Connection status"
+// @Router /binance/status [get]
+func (c *binanceController) GetStatus(ctx *gin.Context) {
+	binanceRepo := repository.NewBinanceRepository()
+	ctx.JSON(http.StatusOK, gin.H{"connected": binanceRepo.IsConnected()})
 }
 
 // GetSubscribedSymbolsHistory godoc
