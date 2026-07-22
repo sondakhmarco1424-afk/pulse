@@ -21,6 +21,9 @@ export default function NotificationLogs({
 
   // Helper to generate the exact Firebase Cloud Messaging JSON payload structure
   const getFCMPayloadString = (log: NotificationLog) => {
+    const symbolMatch = log.body.match(/([A-Z0-9]{3,10}USDT)/);
+    const symbol = symbolMatch ? symbolMatch[1] : 'BTCUSDT';
+
     const payload = {
       to: "fcm_client_registration_token_sandbox",
       collapse_key: "price_alert",
@@ -33,7 +36,7 @@ export default function NotificationLogs({
         click_action: log.link
       },
       data: {
-        symbol: log.body.split(' ')[3], // Extract BTCUSDT
+        symbol: symbol,
         triggeredAt: log.timestamp,
         click_action: log.link
       }

@@ -8,6 +8,7 @@ interface AlertFormProps {
   onCreateAlert: (symbol: string, condition: 'ABOVE' | 'BELOW', price: number) => void;
   isDemoMode: boolean;
   user: any;
+  connectionStatus?: 'connected' | 'reconnecting' | 'disconnected';
 }
 
 export default function AlertForm({
@@ -16,6 +17,7 @@ export default function AlertForm({
   onCreateAlert,
   isDemoMode,
   user,
+  connectionStatus = 'connected',
 }: AlertFormProps) {
   const [symbol, setSymbol] = useState<string>(activeCoin.symbol);
   const [condition, setCondition] = useState<'ABOVE' | 'BELOW'>('ABOVE');
@@ -28,6 +30,7 @@ export default function AlertForm({
   }, [activeCoin]);
 
   const selectedCoinInfo = coins.find(c => c.symbol === symbol) || activeCoin;
+  const isDisconnected = connectionStatus === 'disconnected';
 
   const handlePercentageChange = (percent: number) => {
     const calculated = selectedCoinInfo.currentPrice * (1 + percent / 100);
@@ -37,6 +40,11 @@ export default function AlertForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (isDisconnected) {
+      setError('Cannot connect to Binance. Please make sure you are using a VPN if Binance is restricted in your location.');
+      return;
+    }
 
     const price = parseFloat(priceInput);
     if (isNaN(price) || price <= 0) {
@@ -61,6 +69,17 @@ export default function AlertForm({
           <p className="text-[9px] font-mono text-zinc-500 tracking-widest uppercase">TRIGGER INSTANT FCM BROADCASTS</p>
         </div>
       </div>
+
+      {isDisconnected && (
+        <div className="mb-4 bg-rose-500/10 border border-rose-500/30 rounded p-3 text-center">
+          <p className="text-[11px] text-rose-400 font-mono font-medium leading-relaxed">
+            ⚠️ CANNOT CONNECT TO BINANCE
+          </p>
+          <p className="text-[10px] text-rose-300/80 font-sans mt-0.5">
+            Notifications and alert creation are disabled until connection is restored. Please make sure you are using a VPN if Binance is restricted in your region.
+          </p>
+        </div>
+      )}
 
       {!hasAccess ? (
         <div className="bg-zinc-900/40 border border-zinc-800 rounded p-5 text-center my-2">
@@ -180,9 +199,14 @@ export default function AlertForm({
           {/* Submit */}
           <button
             type="submit"
-            className="w-full py-3 bg-white text-black font-serif italic text-sm mt-2 hover:bg-zinc-200 transition-all cursor-pointer rounded"
+            disabled={isDisconnected}
+            className={`w-full py-3 font-serif italic text-sm mt-2 transition-all rounded ${
+              isDisconnected
+                ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
+                : 'bg-white text-black hover:bg-zinc-200 cursor-pointer'
+            }`}
           >
-            Deploy Price Alert
+            {isDisconnected ? 'Binance Connection Unavailable' : 'Deploy Price Alert'}
           </button>
 
           {/* Info Badge */}
