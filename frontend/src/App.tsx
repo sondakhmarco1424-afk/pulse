@@ -118,7 +118,7 @@ export default function App() {
   // App UI state
   const [activeSymbol, setActiveSymbol] = useState('BTCUSDT');
   const [chartInterval, setChartInterval] = useState('1m');
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'reconnecting' | 'disconnected'>('reconnecting');
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'reconnecting' | 'disconnected'>('disconnected');
 
   // Interactive local states
   const [coins, setCoins] = useState<CoinInfo[]>(() =>
@@ -136,7 +136,8 @@ export default function App() {
   const [logs, setLogs] = useState<NotificationLog[]>(() => {
     try {
       const cached = localStorage.getItem('pulse_notification_logs');
-      return cached ? JSON.parse(cached) : [];
+      const parsed = cached ? JSON.parse(cached) : [];
+      return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
       return [];
     }
@@ -146,7 +147,9 @@ export default function App() {
   // Sync logs state to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem('pulse_notification_logs', JSON.stringify(logs.slice(0, 50)));
+      if (Array.isArray(logs)) {
+        localStorage.setItem('pulse_notification_logs', JSON.stringify(logs.slice(0, 50)));
+      }
     } catch (e) {
       console.error('Failed to save logs to localStorage:', e);
     }
@@ -181,10 +184,16 @@ export default function App() {
         console.log('[fetchAlerts] Successfully fetched alerts from Go backend:', rawAlerts);
         let clearedIds: string[] = [];
         try {
-          clearedIds = JSON.parse(localStorage.getItem('cleared_triggered_alerts') || '[]');
+          const parsed = JSON.parse(localStorage.getItem('cleared_triggered_alerts') || '[]');
+          clearedIds = Array.isArray(parsed) ? parsed : [];
         } catch (e) {
           console.warn("Resetting corrupted cleared_triggered_alerts");
           localStorage.removeItem('cleared_triggered_alerts');
+        }
+
+        if (!Array.isArray(rawAlerts)) {
+          console.warn("Expected array of alerts from Go backend but received:", rawAlerts);
+          return;
         }
 
         const loadedAlerts: AlertType[] = rawAlerts
@@ -211,7 +220,7 @@ export default function App() {
         try {
           const parsed = JSON.parse(cached);
           console.log('[fetchAlerts] Loaded alerts from local storage (Demo Mode):', parsed);
-          setAlerts(parsed);
+          setAlerts(Array.isArray(parsed) ? parsed : []);
         } catch (e) {
           console.error('Failed to parse cached alerts', e);
         }
@@ -466,25 +475,41 @@ export default function App() {
     }
   };
 
-  // Initialize Historical Data for all 4 coins
-  useEffect(() => {
-    const loadAllHistory = async () => {
-      const updatedCoins = await Promise.all(
-        coinsRef.current.map(async (coin) => {
-          const history = await fetchInitialHistory(coin.symbol, chartInterval);
-          const ticker = await fetchTicker24h(coin.symbol);
-          return {
-            ...coin,
-            ...ticker,
-            history: history.slice(-100), // Enforce maximum of 100 prices
-          };
-        })
-      );
-      setCoins(updatedCoins);
-    };
+  // Initialize & reload Historical Data for all 4 coins
+  const loadAllHistory = useCallback(async () => {
+    const updatedCoins = await Promise.all(
+      coinsRef.current.map(async (coin) => {
+        const history = await fetchInitialHistory(coin.symbol, chartIntervalRef.current);
+        const ticker = await fetchTicker24h(coin.symbol);
 
+        // Preserve existing history if REST API fetch returned empty while offline
+        const newHistory = (history && history.length > 0)
+          ? history.slice(-100)
+          : (coin.history && coin.history.length > 0 ? coin.history : []);
+
+        const currentPrice = ticker.currentPrice > 0 ? ticker.currentPrice : coin.currentPrice;
+
+        return {
+          ...coin,
+          ...ticker,
+          currentPrice,
+          history: newHistory,
+        };
+      })
+    );
+    setCoins(updatedCoins);
+  }, []);
+
+  useEffect(() => {
     loadAllHistory();
-  }, [chartInterval]);
+  }, [chartInterval, loadAllHistory]);
+
+  // Re-fetch historical klines whenever Binance connection is restored to 'connected'
+  useEffect(() => {
+    if (connectionStatus === 'connected') {
+      loadAllHistory();
+    }
+  }, [connectionStatus, loadAllHistory]);
 
   // Request browser Notification permissions on mount
   useEffect(() => {
@@ -533,10 +558,65 @@ export default function App() {
     checkAlertsRef.current = checkAlerts;
   }, [checkAlerts]);
 
-  // Connect to Binance Websocket or Fallback Stream
+  const connectionStatusRef = useRef<'connected' | 'reconnecting' | 'disconnected'>('disconnected');
+  const reconnectRef = useRef<((force?: boolean) => void) | null>(null);
+
+  const updateConnectionStatus = useCallback((status: 'connected' | 'reconnecting' | 'disconnected') => {
+    if (connectionStatusRef.current !== status) {
+      connectionStatusRef.current = status;
+      setConnectionStatus(status);
+    }
+  }, []);
+
+  const handleRetryConnection = useCallback(() => {
+    if (reconnectRef.current) {
+      reconnectRef.current(true);
+    }
+  }, []);
+
+  // Connect to Binance Websocket or Fallback Stream with Automatic Reconnection Loop
   useEffect(() => {
     let ws: WebSocket | null = null;
+    let connectTimeoutTimer: any = null;
+    let tickWatchdogTimer: any = null;
     let isMounted = true;
+    let lastConnectTime = 0;
+
+    const resetWatchdog = () => {
+      if (tickWatchdogTimer) {
+        clearTimeout(tickWatchdogTimer);
+        tickWatchdogTimer = null;
+      }
+      if (!isMounted) return;
+
+      // If no price ticks arrive for 3.5 seconds, stream is dead (e.g. VPN dropped midway)
+      tickWatchdogTimer = setTimeout(() => {
+        if (!isMounted) return;
+        console.warn('Binance WebSocket stream watchdog timeout: No price ticks for 3.5s (VPN dropped).');
+        if (ws) {
+          ws.onopen = null;
+          ws.onmessage = null;
+          ws.onerror = null;
+          ws.onclose = null;
+          try { ws.close(); } catch (e) {}
+          ws = null;
+        }
+        handleConnectionFailure();
+      }, 3500);
+    };
+
+    const handleConnectionFailure = () => {
+      if (!isMounted) return;
+      if (connectTimeoutTimer) {
+        clearTimeout(connectTimeoutTimer);
+        connectTimeoutTimer = null;
+      }
+      if (tickWatchdogTimer) {
+        clearTimeout(tickWatchdogTimer);
+        tickWatchdogTimer = null;
+      }
+      updateConnectionStatus('disconnected');
+    };
 
     const handleTickUpdate = (symbol: string, price: number, changePercent: number, high: number, low: number) => {
       const currentInterval = chartIntervalRef.current;
@@ -573,19 +653,84 @@ export default function App() {
       }
     };
 
-    const connectWebSocket = () => {
-      setConnectionStatus('reconnecting');
+    const connectWebSocket = (force = false) => {
+      if (!isMounted) return;
+
+      // If socket is already open and active, ensure status is connected and exit
+      if (!force && ws && ws.readyState === WebSocket.OPEN && connectionStatusRef.current === 'connected') {
+        return;
+      }
+
+      const now = Date.now();
+      if (!force && now - lastConnectTime < 1500) {
+        return;
+      }
+      lastConnectTime = now;
+
+      // Clear any pending timers
+      if (connectTimeoutTimer) {
+        clearTimeout(connectTimeoutTimer);
+        connectTimeoutTimer = null;
+      }
+      if (tickWatchdogTimer) {
+        clearTimeout(tickWatchdogTimer);
+        tickWatchdogTimer = null;
+      }
+
+      // Close previous dead/closing socket if any
+      if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        try { ws.close(); } catch (e) {}
+        ws = null;
+      }
+
+      updateConnectionStatus('reconnecting');
       
       try {
         ws = new WebSocket('wss://stream.binance.com:9443/stream?streams=btcusdt@ticker/ethusdt@ticker/bnbusdt@ticker/solusdt@ticker');
 
+        // 5-second connection timeout guard: fail fast to RED (disconnected) if TCP handshaking stalls
+        connectTimeoutTimer = setTimeout(() => {
+          if (!isMounted) return;
+          if (ws && ws.readyState !== WebSocket.OPEN) {
+            console.warn('Binance WebSocket connection attempt timed out after 5s.');
+            if (ws) {
+              ws.onopen = null;
+              ws.onmessage = null;
+              ws.onerror = null;
+              ws.onclose = null;
+              try { ws.close(); } catch (e) {}
+              ws = null;
+            }
+            handleConnectionFailure();
+          }
+        }, 5000);
+
         ws.onopen = () => {
           if (!isMounted) return;
-          setConnectionStatus('connected');
+          if (connectTimeoutTimer) {
+            clearTimeout(connectTimeoutTimer);
+            connectTimeoutTimer = null;
+          }
+          console.log('Binance WebSocket connected successfully!');
+          updateConnectionStatus('connected');
+          resetWatchdog();
         };
 
         ws.onmessage = (event) => {
           if (!isMounted) return;
+          if (connectTimeoutTimer) {
+            clearTimeout(connectTimeoutTimer);
+            connectTimeoutTimer = null;
+          }
+
+          // Receiving live price messages confirms connected status & resets watchdog timer
+          updateConnectionStatus('connected');
+          resetWatchdog();
+
           try {
             const message = JSON.parse(event.data);
             if (!message || !message.data) return;
@@ -605,33 +750,52 @@ export default function App() {
 
         ws.onerror = () => {
           if (!isMounted) return;
-          console.warn('Binance WebSocket connection failed. Disconnected from Binance.');
-          setConnectionStatus('disconnected');
-          if (ws) ws.close();
+          console.warn('Binance WebSocket connection failed.');
+          handleConnectionFailure();
         };
 
         ws.onclose = () => {
           if (!isMounted) return;
-          console.warn('Binance WebSocket closed. Status: disconnected.');
-          setConnectionStatus('disconnected');
+          console.warn('Binance WebSocket closed.');
+          handleConnectionFailure();
         };
       } catch (err) {
         if (!isMounted) return;
+        if (connectTimeoutTimer) {
+          clearTimeout(connectTimeoutTimer);
+          connectTimeoutTimer = null;
+        }
         console.warn('Failed to construct Binance WebSocket:', err);
-        setConnectionStatus('disconnected');
+        handleConnectionFailure();
       }
     };
 
+    reconnectRef.current = connectWebSocket;
     connectWebSocket();
+
+    // Trigger immediate reconnect when browser network comes online or window gains focus (e.g. after turning on VPN)
+    const handleOnlineOrFocus = () => {
+      if (isMounted && (!ws || ws.readyState !== WebSocket.OPEN)) {
+        console.log('Network online or window focused — attempting to reconnect to Binance...');
+        connectWebSocket();
+      }
+    };
+
+    window.addEventListener('online', handleOnlineOrFocus);
+    window.addEventListener('focus', handleOnlineOrFocus);
 
     return () => {
       isMounted = false;
+      if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
+      if (tickWatchdogTimer) clearTimeout(tickWatchdogTimer);
+      window.removeEventListener('online', handleOnlineOrFocus);
+      window.removeEventListener('focus', handleOnlineOrFocus);
       if (ws) {
         ws.onopen = null;
         ws.onmessage = null;
         ws.onerror = null;
         ws.onclose = null;
-        ws.close();
+        try { ws.close(); } catch (e) {}
       }
     };
   }, []);
@@ -763,6 +927,7 @@ export default function App() {
       <Header
         user={user}
         connectionStatus={connectionStatus}
+        onRetryConnection={handleRetryConnection}
       />
 
       {/* Main Bento Layout */}
@@ -792,6 +957,7 @@ export default function App() {
             isDemoMode={isDemoMode}
             user={user}
             connectionStatus={connectionStatus}
+            onRetryConnection={handleRetryConnection}
           />
         </div>
 

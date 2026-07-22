@@ -9,6 +9,7 @@ interface AlertFormProps {
   isDemoMode: boolean;
   user: any;
   connectionStatus?: 'connected' | 'reconnecting' | 'disconnected';
+  onRetryConnection?: () => void;
 }
 
 export default function AlertForm({
@@ -18,6 +19,7 @@ export default function AlertForm({
   isDemoMode,
   user,
   connectionStatus = 'connected',
+  onRetryConnection,
 }: AlertFormProps) {
   const [symbol, setSymbol] = useState<string>(activeCoin.symbol);
   const [condition, setCondition] = useState<'ABOVE' | 'BELOW'>('ABOVE');
@@ -30,7 +32,7 @@ export default function AlertForm({
   }, [activeCoin]);
 
   const selectedCoinInfo = coins.find(c => c.symbol === symbol) || activeCoin;
-  const isDisconnected = connectionStatus === 'disconnected';
+  const isNotConnected = connectionStatus !== 'connected';
 
   const handlePercentageChange = (percent: number) => {
     const calculated = selectedCoinInfo.currentPrice * (1 + percent / 100);
@@ -41,7 +43,7 @@ export default function AlertForm({
     e.preventDefault();
     setError(null);
 
-    if (isDisconnected) {
+    if (isNotConnected) {
       setError('Cannot connect to Binance. Please make sure you are using a VPN if Binance is restricted in your location.');
       return;
     }
@@ -70,14 +72,37 @@ export default function AlertForm({
         </div>
       </div>
 
-      {isDisconnected && (
-        <div className="mb-4 bg-rose-500/10 border border-rose-500/30 rounded p-3 text-center">
-          <p className="text-[11px] text-rose-400 font-mono font-medium leading-relaxed">
-            ⚠️ CANNOT CONNECT TO BINANCE
-          </p>
-          <p className="text-[10px] text-rose-300/80 font-sans mt-0.5">
-            Notifications and alert creation are disabled until connection is restored. Please make sure you are using a VPN if Binance is restricted in your region.
-          </p>
+      {isNotConnected && (
+        <div className={`mb-4 rounded p-3 text-center flex flex-col items-center gap-2 border ${
+          connectionStatus === 'reconnecting'
+            ? 'bg-amber-500/10 border-amber-500/30'
+            : 'bg-rose-500/10 border-rose-500/30'
+        }`}>
+          <div>
+            <p className={`text-[11px] font-mono font-medium leading-relaxed ${
+              connectionStatus === 'reconnecting' ? 'text-amber-400' : 'text-rose-400'
+            }`}>
+              {connectionStatus === 'reconnecting' ? '⏳ CONNECTING TO BINANCE...' : '⚠️ NOT CONNECTED TO BINANCE'}
+            </p>
+            <p className={`text-[10px] font-sans mt-0.5 ${
+              connectionStatus === 'reconnecting' ? 'text-amber-300/80' : 'text-rose-300/80'
+            }`}>
+              Notifications and alert creation are disabled until connection is restored. Please make sure you are using a VPN if Binance is restricted in your region.
+            </p>
+          </div>
+          {onRetryConnection && (
+            <button
+              onClick={onRetryConnection}
+              type="button"
+              className={`px-3 py-1 border text-[10px] font-mono rounded cursor-pointer transition-colors ${
+                connectionStatus === 'reconnecting'
+                  ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/40 text-amber-300'
+                  : 'bg-rose-500/20 hover:bg-rose-500/30 border-rose-500/40 text-rose-300'
+              }`}
+            >
+              🔄 RETRY CONNECTION NOW
+            </button>
+          )}
         </div>
       )}
 
@@ -199,14 +224,14 @@ export default function AlertForm({
           {/* Submit */}
           <button
             type="submit"
-            disabled={isDisconnected}
+            disabled={isNotConnected}
             className={`w-full py-3 font-serif italic text-sm mt-2 transition-all rounded ${
-              isDisconnected
+              isNotConnected
                 ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
                 : 'bg-white text-black hover:bg-zinc-200 cursor-pointer'
             }`}
           >
-            {isDisconnected ? 'Binance Connection Unavailable' : 'Deploy Price Alert'}
+            {isNotConnected ? 'Binance Connection Unavailable' : 'Deploy Price Alert'}
           </button>
 
           {/* Info Badge */}
