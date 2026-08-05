@@ -1,11 +1,12 @@
-# --- Build Stage ---
-FROM golang:1.24-alpine AS builder
+FROM golang:alpine AS builder
 
 # Install Git (required for fetching dependencies via Git URLs)
 # Install ca-certificates to ensure SSL connections work during dependency fetching
 RUN apk add --no-cache git ca-certificates
 
 WORKDIR /app
+
+ENV GOTOOLCHAIN=auto
 
 # Copy go.mod and go.sum first to leverage Docker layer caching
 COPY go.mod go.sum ./
