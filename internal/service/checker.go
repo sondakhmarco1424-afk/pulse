@@ -47,7 +47,7 @@ func (c *goLiveChecker) Start(ctx context.Context) error {
 				return fmt.Errorf("redis pubsub channel closed")
 			}
 
-			go c.evaluateTick(ctx, msg.Payload, alertsRepo)
+			c.evaluateTick(ctx, msg.Payload, alertsRepo)
 		}
 	}
 }

@@ -159,6 +159,27 @@ export default function App() {
     }
   });
   const [activeToasts, setActiveToasts] = useState<NotificationLog[]>([]);
+  const [showNotifPermissionModal, setShowNotifPermissionModal] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission !== 'granted') {
+        setShowNotifPermissionModal(true);
+      }
+    }
+  }, []);
+
+  const handleEnableNotifications = async () => {
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        setShowNotifPermissionModal(false);
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error('Error requesting notification permission:', err);
+    }
+  };
 
   // Sync logs state to localStorage
   useEffect(() => {
@@ -1149,6 +1170,30 @@ export default function App() {
           ))}
         </AnimatePresence>
       </div>
+
+      {/* Required Push Notification Permission Modal */}
+      {showNotifPermissionModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="bg-[#0A0A0B] border border-emerald-500/40 rounded-2xl p-7 max-w-md w-full shadow-2xl flex flex-col items-center text-center space-y-5 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500" />
+            <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/30 rounded-full flex items-center justify-center text-emerald-400 text-3xl animate-bounce">
+              🔔
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-bold text-white tracking-wide font-sans">Enable Notifications Required</h3>
+              <p className="text-xs text-zinc-400 leading-relaxed font-sans">
+                Pulse requires notification permissions to deliver instant crypto price alerts directly to your browser even when running in the background.
+              </p>
+            </div>
+            <button
+              onClick={handleEnableNotifications}
+              className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/25 cursor-pointer font-sans tracking-wide uppercase"
+            >
+              Turn On Notifications Now
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
