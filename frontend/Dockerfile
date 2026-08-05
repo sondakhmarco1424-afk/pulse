@@ -3,17 +3,13 @@ FROM nginx:alpine
 # Copy pre-built static bundle into Nginx html directory
 COPY dist /usr/share/nginx/html
 
-# Add SPA fallback & SSL configuration for React Router / Vite
+# Add Nginx config for HTTP and ACME challenge fallback
 RUN echo 'server { \
     listen 80; \
-    server_name pulse-crypto.duckdns.org; \
-    return 301 https://$host$request_uri; \
-} \
-server { \
-    listen 443 ssl; \
-    server_name pulse-crypto.duckdns.org; \
-    ssl_certificate /etc/letsencrypt/live/pulse-crypto.duckdns.org/fullchain.pem; \
-    ssl_certificate_key /etc/letsencrypt/live/pulse-crypto.duckdns.org/privkey.pem; \
+    server_name pulse-crypto.duckdns.org localhost _; \
+    location /.well-known/acme-challenge/ { \
+        root /usr/share/nginx/html; \
+    } \
     location / { \
         root /usr/share/nginx/html; \
         index index.html; \
