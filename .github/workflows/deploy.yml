@@ -15,36 +15,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-
-      - name: Build Go Linux Binary
-        run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o pulse ./internal/cmd/main.go
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Build Frontend Web Bundle
-        run: |
-          cd frontend
-          npm ci
-          npm run build
-
-      - name: SCP pre-built assets to EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          source: "pulse,frontend/dist"
-          target: "~/Pulse"
-
       - name: Deploy via SSH to EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
