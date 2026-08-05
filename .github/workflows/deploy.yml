@@ -27,4 +27,4 @@ jobs:
             cd ~/Pulse || cd Pulse
             git fetch origin
             git pull origin ${{ github.ref_name }}
-            docker compose -f docker-compose-pulse.yml up -d --build
+            docker compose -f docker-compose-pulse.yml up -d --build --pull missing
