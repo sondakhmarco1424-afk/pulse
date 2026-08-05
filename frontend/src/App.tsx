@@ -122,8 +122,8 @@ function getIntervalTimeString(date: Date, interval: string): string {
 export default function App() {
   // Auth state
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8081';
-  const defaultDemoMode = (import.meta as any).env?.VITE_DEMO_MODE === 'true' || (!isLocalhost && !(import.meta as any).env?.VITE_API_BASE_URL);
+  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8081');
+  const defaultDemoMode = (import.meta as any).env?.VITE_DEMO_MODE === 'true';
   const [isDemoMode, setDemoMode] = useState(defaultDemoMode);
   const [user, setUser] = useState<any>({
     email: !defaultDemoMode ? 'guest@pulse.com' : 'local-storage@pulse.com',
