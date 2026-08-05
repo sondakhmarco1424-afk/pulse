@@ -139,7 +139,10 @@ services:
     restart: on-failure
     ports:
       - "80:80"
+      - "443:443"
       - "3000:80"
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     networks:
       - pulse-system-net
     depends_on:
