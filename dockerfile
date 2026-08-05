@@ -8,9 +8,10 @@ RUN apk add --no-cache curl ca-certificates tzdata && \
 
 WORKDIR /home/pulse
 
-# Copy pre-compiled Linux binary and docs
+# Copy pre-compiled Linux binary, config, and docs
 COPY pulse ./pulse
 COPY docs ./docs
+COPY internal/config ./internal/config
 
 # Grant execute permissions & change ownership to non-root user
 RUN chmod +x ./pulse && chown -R pulse:pulse /home/pulse
