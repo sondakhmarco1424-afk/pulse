@@ -12,8 +12,8 @@ WORKDIR /home/pulse
 COPY pulse ./pulse
 COPY docs ./docs
 
-# Change ownership to non-root user
-RUN chown -R pulse:pulse /home/pulse
+# Grant execute permissions & change ownership to non-root user
+RUN chmod +x ./pulse && chown -R pulse:pulse /home/pulse
 
 USER pulse
 
