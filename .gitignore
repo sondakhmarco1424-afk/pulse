@@ -4,7 +4,7 @@
 *.dll
 *.so
 *.dylib
-# pulse
+pulse
 main
 __debug_bin*
 
