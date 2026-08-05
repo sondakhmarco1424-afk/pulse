@@ -25,10 +25,10 @@ RUN go generate ./internal/...
 ARG APP_VERSION=1.0.0
 ARG Git_COMMIT
 
-# Build the binary
-# -o pulse: Output binary name
-# -ldflags ...: Embed version info, disable CGO (for smaller/faster binary on Alpine), and set build date/time
-RUN go build -ldflags "-X 'pulse/internal/config.Version=$APP_VERSION' -X 'pulse/internal/config.GitCommit=$Git_COMMIT' -X 'pulse/internal/config.BuildDate=$(date +%FT%T%z)' -s -w" -o pulse ./internal/cmd/main.go
+ENV CGO_ENABLED=0
+
+# Build the binary with restricted concurrency (-p 2) to prevent RAM/swap thrashing on t3.micro
+RUN go build -p 2 -ldflags "-X 'pulse/internal/config.Version=$APP_VERSION' -X 'pulse/internal/config.GitCommit=$Git_COMMIT' -X 'pulse/internal/config.BuildDate=$(date +%FT%T%z)' -s -w" -o pulse ./internal/cmd/main.go
 
 # --- Runtime Stage ---
 FROM alpine:3.21 AS runtime
