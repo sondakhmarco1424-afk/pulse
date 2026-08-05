@@ -17,10 +17,6 @@ RUN go mod download
 # Copy the rest of the source code
 COPY . .
 
-# Generate the 'docs' package from Swagger annotations
-# This ensures the docs are built inside the container at build time
-RUN go generate ./internal/... 
-
 # Set build arguments for versioning
 ARG APP_VERSION=1.0.0
 ARG Git_COMMIT
