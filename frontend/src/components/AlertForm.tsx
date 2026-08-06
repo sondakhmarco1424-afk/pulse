@@ -22,18 +22,12 @@ export default function AlertForm({
   onRetryConnection,
 }: AlertFormProps) {
   const [symbol, setSymbol] = useState<string>(activeCoin?.symbol || 'BTCUSDT');
-  const [searchQuery, setSearchQuery] = useState<string>('');
   const [condition, setCondition] = useState<'ABOVE' | 'BELOW'>('ABOVE');
   const [priceInput, setPriceInput] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
   const selectedCoinInfo = coins.find(c => c.symbol === symbol) || activeCoin;
   const isNotConnected = connectionStatus !== 'connected';
-
-  const filteredCoins = coins.filter(c => 
-    c.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
 
   const handlePercentageChange = (percent: number) => {
     const calculated = selectedCoinInfo.currentPrice * (1 + percent / 100);
@@ -121,28 +115,11 @@ export default function AlertForm({
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {/* Target Coin Selector with Search */}
+          {/* Target Coin Selector */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-[10px] font-mono uppercase text-zinc-500 tracking-wider block">
-                Select Symbol
-              </label>
-              <span className="text-[9px] font-mono text-emerald-400 font-semibold tracking-wider">
-                SELECTED: {symbol}
-              </span>
-            </div>
-            
-            {/* Symbol Search Filter Input */}
-            <div className="mb-2">
-              <input
-                type="text"
-                placeholder="Search symbol (e.g. BTC, ETH, SOL)..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs rounded px-3 py-1.5 font-mono focus:outline-none focus:border-zinc-700 placeholder:text-zinc-600 mb-1.5"
-              />
-            </div>
-
+            <label className="text-[10px] font-mono uppercase text-zinc-500 tracking-wider block mb-1.5">
+              Select Symbol
+            </label>
             <select
               value={symbol}
               onChange={e => {
@@ -150,19 +127,11 @@ export default function AlertForm({
               }}
               className="w-full bg-zinc-900 border border-zinc-800 text-white text-xs rounded p-2.5 font-mono focus:outline-none focus:border-zinc-600 cursor-pointer"
             >
-              {filteredCoins.length > 0 ? (
-                filteredCoins.map(c => (
-                  <option key={c.symbol} value={c.symbol} className="bg-zinc-900">
-                    {c.symbol}/USDT ({c.name}) — Spot: ${c.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </option>
-                ))
-              ) : (
-                coins.map(c => (
-                  <option key={c.symbol} value={c.symbol} className="bg-zinc-900">
-                    {c.symbol}/USDT ({c.name}) — Spot: ${c.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </option>
-                ))
-              )}
+              {coins.map(c => (
+                <option key={c.symbol} value={c.symbol} className="bg-zinc-900">
+                  {c.symbol}/USDT ({c.name}) — Spot: ${c.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </option>
+              ))}
             </select>
           </div>
 

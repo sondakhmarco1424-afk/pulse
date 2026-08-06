@@ -69,23 +69,20 @@ self.addEventListener('notificationclick', function(event) {
     }
   }
 
-  // Ensure target URL dynamically uses self.location.origin and strips any hardcoded localhost:3000
-  const currentOrigin = self.location.origin;
-  let rawLink = dataPayload.link || dataPayload.url || dataPayload.click_action || dataPayload.urlToOpen || '';
-  if (rawLink.includes('localhost:3000')) {
-    rawLink = rawLink.replace(/http:\/\/localhost:3000/g, currentOrigin);
-  }
+  // Determine target origin dynamically from payload app_origin or fallback to self.location.origin
+  const payloadOrigin = dataPayload.app_origin || dataPayload.appOrigin;
+  const targetOrigin = (payloadOrigin && (payloadOrigin.startsWith('http://') || payloadOrigin.startsWith('https://'))) 
+    ? payloadOrigin 
+    : self.location.origin;
 
-  let urlToOpen = currentOrigin;
-  if (rawLink && !rawLink.includes('localhost')) {
+  let rawLink = dataPayload.link || dataPayload.url || dataPayload.click_action || dataPayload.urlToOpen || '';
+  let urlToOpen = symbol ? `${targetOrigin}/?symbol=${encodeURIComponent(symbol)}` : targetOrigin;
+
+  if (rawLink) {
     try {
-      const parsed = new URL(rawLink, currentOrigin);
+      const parsed = new URL(rawLink, targetOrigin);
       urlToOpen = parsed.origin + parsed.pathname + parsed.search;
-    } catch (e) {
-      urlToOpen = symbol ? `${currentOrigin}/?symbol=${encodeURIComponent(symbol)}` : currentOrigin;
-    }
-  } else {
-    urlToOpen = symbol ? `${currentOrigin}/?symbol=${encodeURIComponent(symbol)}` : currentOrigin;
+    } catch (e) {}
   }
 
   event.waitUntil(
