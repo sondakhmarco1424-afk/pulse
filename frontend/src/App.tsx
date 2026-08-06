@@ -122,13 +122,26 @@ function getIntervalTimeString(date: Date, interval: string): string {
 export default function App() {
   // Auth state
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8081');
+  const defaultApiUrl = typeof window !== 'undefined'
+    ? (window.location.port === '3000' || window.location.port === '5173' ? 'http://localhost:8081' : window.location.origin)
+    : 'http://localhost:8081';
+  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || defaultApiUrl;
   const defaultDemoMode = (import.meta as any).env?.VITE_DEMO_MODE === 'true';
   const [isDemoMode, setDemoMode] = useState(defaultDemoMode);
-  const [user, setUser] = useState<any>({
-    email: !defaultDemoMode ? 'guest@pulse.com' : 'local-storage@pulse.com',
+  const getOrCreateGuestEmail = (): string => {
+    if (typeof window === 'undefined') return 'guest@pulse.com';
+    let guestId = localStorage.getItem('pulse_guest_session_id');
+    if (!guestId) {
+      guestId = `guest_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36)}@pulse.com`;
+      localStorage.setItem('pulse_guest_session_id', guestId);
+    }
+    return guestId;
+  };
+
+  const [user, setUser] = useState<any>(() => ({
+    email: !defaultDemoMode ? getOrCreateGuestEmail() : 'local-storage@pulse.com',
     displayName: !defaultDemoMode ? 'Guest (Live)' : 'Guest (Demo)'
-  });
+  }));
   const [loadingAuth, setLoadingAuth] = useState(false);
 
   // App UI state
@@ -273,7 +286,8 @@ export default function App() {
     const id = Math.random().toString(36).substring(2, 9);
     const title = '🚨 Crypto Alert Triggered!';
     const body = `The price of ${symbol} is currently ${condition} ${price.toLocaleString(undefined, { minimumFractionDigits: 2 })}.`;
-    const appUrl = (import.meta as any).env?.VITE_APP_URL || window.location.origin;
+    const rawAppUrl = (import.meta as any).env?.VITE_APP_URL || window.location.origin;
+    const appUrl = rawAppUrl.includes('localhost:3000') ? window.location.origin : rawAppUrl;
     const link = `${appUrl}/?symbol=${symbol}`;
 
     const newLog: NotificationLog = {
@@ -924,6 +938,7 @@ export default function App() {
         symbol: symbol,
         price: priceThreshold.toString(),
         trigger_direction: condition,
+        app_origin: typeof window !== 'undefined' ? window.location.origin : 'https://pulse-crypto.duckdns.org',
       };
       console.log('[handleCreateAlert] Sending creation payload to Go backend:', payload);
       try {
@@ -936,11 +951,20 @@ export default function App() {
         });
 
         if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.error || 'Failed to create alert');
+          let errMessage = 'Failed to create alert';
+          try {
+            const errData = await response.json();
+            errMessage = errData.error || errMessage;
+          } catch (e) {}
+          throw new Error(errMessage);
         }
 
-        const data = await response.json();
+        let data = null;
+        try {
+          data = await response.json();
+        } catch (e) {
+          console.log('[handleCreateAlert] Alert created successfully (empty/non-JSON response)');
+        }
         console.log('[handleCreateAlert] Successfully created alert in Go backend:', data);
 
         // Trigger refetch of alerts list
@@ -999,8 +1023,12 @@ export default function App() {
         });
 
         if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.error || 'Failed to cancel alert');
+          let errMessage = 'Failed to cancel alert';
+          try {
+            const errData = await response.json();
+            errMessage = errData.error || errMessage;
+          } catch (e) {}
+          throw new Error(errMessage);
         }
 
         // Trigger refetch of alerts list

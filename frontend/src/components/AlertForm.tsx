@@ -21,15 +21,10 @@ export default function AlertForm({
   connectionStatus = 'connected',
   onRetryConnection,
 }: AlertFormProps) {
-  const [symbol, setSymbol] = useState<string>(activeCoin.symbol);
+  const [symbol, setSymbol] = useState<string>(activeCoin?.symbol || 'BTCUSDT');
   const [condition, setCondition] = useState<'ABOVE' | 'BELOW'>('ABOVE');
   const [priceInput, setPriceInput] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
-
-  // Synchronize symbol state when activeCoin changes from parent select
-  useEffect(() => {
-    setSymbol(activeCoin.symbol);
-  }, [activeCoin]);
 
   const selectedCoinInfo = coins.find(c => c.symbol === symbol) || activeCoin;
   const isNotConnected = connectionStatus !== 'connected';
@@ -134,7 +129,7 @@ export default function AlertForm({
             >
               {coins.map(c => (
                 <option key={c.symbol} value={c.symbol} className="bg-zinc-900">
-                  {c.symbol}/USDT — Spot: ${c.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  {c.symbol}/USDT ({c.name}) — Spot: ${c.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </option>
               ))}
             </select>

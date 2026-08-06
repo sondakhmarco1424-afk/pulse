@@ -107,10 +107,11 @@ func (c *goLiveChecker) evaluateTick(ctx context.Context, payload string, alerts
 					EventType:   "ALERTS_PRICE_NOTIFICATION",
 					TargetEmail: alert.Requester,
 					Data: map[string]string{
-						"title":  "Price Alert Triggered",
-						"body":   bodyText,
-						"symbol": symbol,
-						"price":  fmt.Sprintf("%.2f", currentPrice),
+						"title":      "Price Alert Triggered",
+						"body":       bodyText,
+						"symbol":     symbol,
+						"price":      fmt.Sprintf("%.2f", currentPrice),
+						"app_origin": alert.AppOrigin,
 					},
 				}
 

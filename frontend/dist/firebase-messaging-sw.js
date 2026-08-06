@@ -69,20 +69,33 @@ self.addEventListener('notificationclick', function(event) {
     }
   }
 
-  const urlToOpen = symbol ? `${self.location.origin}/?symbol=${encodeURIComponent(symbol)}` : self.location.origin;
+  // Determine target origin dynamically from payload app_origin or fallback to self.location.origin
+  const payloadOrigin = dataPayload.app_origin || dataPayload.appOrigin;
+  const targetOrigin = (payloadOrigin && (payloadOrigin.startsWith('http://') || payloadOrigin.startsWith('https://'))) 
+    ? payloadOrigin 
+    : self.location.origin;
+
+  let rawLink = dataPayload.link || dataPayload.url || dataPayload.click_action || dataPayload.urlToOpen || '';
+  let urlToOpen = symbol ? `${targetOrigin}/?symbol=${encodeURIComponent(symbol)}` : targetOrigin;
+
+  if (rawLink) {
+    try {
+      const parsed = new URL(rawLink, targetOrigin);
+      urlToOpen = parsed.origin + parsed.pathname + parsed.search;
+    } catch (e) {}
+  }
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(windowClients) {
-      const urlObj = new URL(urlToOpen, self.location.origin);
-      const targetOriginPath = urlObj.origin + urlObj.pathname;
+      const targetUrlObj = new URL(urlToOpen, currentOrigin);
 
       for (let i = 0; i < windowClients.length; i++) {
         let client = windowClients[i];
         try {
           const clientUrlObj = new URL(client.url);
-          const clientOriginPath = clientUrlObj.origin + clientUrlObj.pathname;
           
-          if (clientOriginPath === targetOriginPath) {
+          // Match any window client on the exact same production origin
+          if (clientUrlObj.origin === targetUrlObj.origin) {
             client.postMessage({
               type: 'FCM_NOTIFICATION_CLICK',
               symbol: symbol,
@@ -90,13 +103,18 @@ self.addEventListener('notificationclick', function(event) {
               payload: dataPayload
             });
             if ('focus' in client) {
-              return client.focus();
+              client.focus();
             }
+            if ('navigate' in client && client.url !== urlToOpen) {
+              return client.navigate(urlToOpen);
+            }
+            return;
           }
         } catch (e) {
           console.error('Error comparing client URLs:', e);
         }
       }
+
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }

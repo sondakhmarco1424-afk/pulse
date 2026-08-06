@@ -53,6 +53,7 @@ type AlertsRequestRaw struct {
 	Range            PriceRange `json:"range,omitempty"`
 	TriggerDirection string     `json:"trigger_direction,omitempty"`
 	ShowAll          bool       `json:"show_all,omitempty"`
+	AppOrigin        string     `json:"app_origin,omitempty"`
 }
 
 type Alert struct {
@@ -68,6 +69,7 @@ type Alert struct {
 	UpdatedAt          time.Time  `db:"updated_at" json:"updated_at"`
 	TriggeredAt        *time.Time `db:"triggered_at" json:"triggered_at,omitempty"`
 	ActiveRequester    string     `db:"active_requester" json:"active_requester,omitempty"`
+	AppOrigin          string     `db:"app_origin" json:"app_origin,omitempty"`
 }
 
 type AlertsKafkaPayload struct {

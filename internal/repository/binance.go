@@ -55,10 +55,15 @@ func (svc *binanceRepository) ConnectWs() {
 
 	slog.Info("Attempting to connect to Binance WebSocket...")
 	conn, resp, err := dialer.Dial(url, headers)
-
-	// Exit early if dialing fails to prevent nil pointer dereference
 	if err != nil {
-		slog.Error("Failed to establish Binance websocket connection", "error", err, "response", resp)
+		slog.Warn("Custom IPv4 dialer failed, falling back to default dialer for VPN...", "error", err)
+		defaultDialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
+		conn, resp, err = defaultDialer.Dial(url, headers)
+	}
+
+	// Exit early if both dialing attempts fail
+	if err != nil {
+		slog.Error("Failed to establish Binance websocket connection on all dialers", "error", err, "response", resp)
 		return
 	}
 	defer conn.Close()
