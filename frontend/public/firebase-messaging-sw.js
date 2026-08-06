@@ -69,20 +69,36 @@ self.addEventListener('notificationclick', function(event) {
     }
   }
 
-  const urlToOpen = symbol ? `${self.location.origin}/?symbol=${encodeURIComponent(symbol)}` : self.location.origin;
+  // Ensure target URL dynamically uses self.location.origin and strips any hardcoded localhost:3000
+  const currentOrigin = self.location.origin;
+  let rawLink = dataPayload.link || dataPayload.url || dataPayload.click_action || dataPayload.urlToOpen || '';
+  if (rawLink.includes('localhost:3000')) {
+    rawLink = rawLink.replace(/http:\/\/localhost:3000/g, currentOrigin);
+  }
+
+  let urlToOpen = currentOrigin;
+  if (rawLink && !rawLink.includes('localhost')) {
+    try {
+      const parsed = new URL(rawLink, currentOrigin);
+      urlToOpen = parsed.origin + parsed.pathname + parsed.search;
+    } catch (e) {
+      urlToOpen = symbol ? `${currentOrigin}/?symbol=${encodeURIComponent(symbol)}` : currentOrigin;
+    }
+  } else {
+    urlToOpen = symbol ? `${currentOrigin}/?symbol=${encodeURIComponent(symbol)}` : currentOrigin;
+  }
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(windowClients) {
-      const urlObj = new URL(urlToOpen, self.location.origin);
-      const targetOriginPath = urlObj.origin + urlObj.pathname;
+      const targetUrlObj = new URL(urlToOpen, currentOrigin);
 
       for (let i = 0; i < windowClients.length; i++) {
         let client = windowClients[i];
         try {
           const clientUrlObj = new URL(client.url);
-          const clientOriginPath = clientUrlObj.origin + clientUrlObj.pathname;
           
-          if (clientOriginPath === targetOriginPath) {
+          // Match any window client on the exact same production origin
+          if (clientUrlObj.origin === targetUrlObj.origin) {
             client.postMessage({
               type: 'FCM_NOTIFICATION_CLICK',
               symbol: symbol,
@@ -90,13 +106,18 @@ self.addEventListener('notificationclick', function(event) {
               payload: dataPayload
             });
             if ('focus' in client) {
-              return client.focus();
+              client.focus();
             }
+            if ('navigate' in client && client.url !== urlToOpen) {
+              return client.navigate(urlToOpen);
+            }
+            return;
           }
         } catch (e) {
           console.error('Error comparing client URLs:', e);
         }
       }
+
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }

@@ -273,7 +273,8 @@ export default function App() {
     const id = Math.random().toString(36).substring(2, 9);
     const title = '🚨 Crypto Alert Triggered!';
     const body = `The price of ${symbol} is currently ${condition} ${price.toLocaleString(undefined, { minimumFractionDigits: 2 })}.`;
-    const appUrl = (import.meta as any).env?.VITE_APP_URL || window.location.origin;
+    const rawAppUrl = (import.meta as any).env?.VITE_APP_URL || window.location.origin;
+    const appUrl = rawAppUrl.includes('localhost:3000') ? window.location.origin : rawAppUrl;
     const link = `${appUrl}/?symbol=${symbol}`;
 
     const newLog: NotificationLog = {
