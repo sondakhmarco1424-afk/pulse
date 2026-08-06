@@ -17,9 +17,9 @@ The application is deployed live on a free-tier AWS EC2 instance (`t3.micro`) us
 
 | Component | URL | Status |
 | :--- | :--- | :--- |
-| 💻 **React Frontend App** | [http://3.25.120.213](http://3.25.120.213) | ![Live](https://img.shields.io/badge/Live-Online-brightgreen) |
-| 📊 **Kafka Cluster Dashboard** | [http://3.25.120.213:8080](http://3.25.120.213:8080) | ![Live](https://img.shields.io/badge/Live-Online-brightgreen) |
-| ⚡ **Go REST API & Swagger** | [http://3.25.120.213:8081/swagger/index.html](http://3.25.120.213:8081/swagger/index.html) | ![Live](https://img.shields.io/badge/Live-Online-brightgreen) |
+| 💻 **React Frontend App** | [https://pulse-crypto.duckdns.org/](https://pulse-crypto.duckdns.org/) | ![Live](https://img.shields.io/badge/Live-Online-brightgreen) |
+| 📊 **Kafka Cluster Dashboard** | [http://pulse-crypto.duckdns.org:8080](http://pulse-crypto.duckdns.org:8080) | ![Live](https://img.shields.io/badge/Live-Online-brightgreen) |
+| ⚡ **Go REST API & Swagger** | [http://pulse-crypto.duckdns.org:8081/swagger/index.html](http://pulse-crypto.duckdns.org:8081/swagger/index.html) | ![Live](https://img.shields.io/badge/Live-Online-brightgreen) |
 
 ---
 
