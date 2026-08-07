@@ -25,13 +25,6 @@ services:
       - KAFKA_BROKERS=kafka:29092
     networks:
       - pulse-system-net
-    depends_on:
-      pulse_app_db:
-        condition: service_healthy
-      redis:
-        condition: service_started
-      kafka:
-        condition: service_started
 
   pulse_frontend_dev:
     build:
