@@ -84,8 +84,8 @@ func (svc *alertsService) CreateAlert(ctx context.Context, data models.AlertsReq
 		return nil, fmt.Errorf("failed to create alert in repository: %w", err)
 	}
 
-	// 6. Send alert request event to Kafka
-	producer, err := app.NewKafkaProducer(app.ProducerKafkaConfigMap())
+	// 6. Send alert request event to Kafka using singleton producer
+	producer, err := app.GetKafkaProducer()
 	if err == nil {
 		payload, err := json.Marshal(alert)
 		if err == nil {

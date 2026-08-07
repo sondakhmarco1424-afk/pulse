@@ -115,11 +115,11 @@ func (c *goLiveChecker) evaluateTick(ctx context.Context, payload string, alerts
 					},
 				}
 
-				// Publish to Kafka notifications topic
+				// Publish to Kafka notifications topic using singleton producer
 				fcmSvc := NewFCMNotificationService()
-				producer, err := app.NewKafkaProducer(app.ProducerKafkaConfigMap())
+				producer, err := app.GetKafkaProducer()
 				if err != nil {
-					slog.Error("Failed to create Kafka producer, sending notification directly via FCM", "error", err)
+					slog.Error("Failed to get Kafka producer, sending notification directly via FCM", "error", err)
 					if sendErr := fcmSvc.Send(ctx, kafkaPayload); sendErr != nil {
 						slog.Error("Direct FCM fallback failed", "error", sendErr)
 					} else {
