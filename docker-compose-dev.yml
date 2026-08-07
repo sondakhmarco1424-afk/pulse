@@ -34,7 +34,6 @@ services:
     restart: on-failure
     ports:
       - "8083:80"
-      - "8443:443"
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
     networks:
