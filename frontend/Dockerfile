@@ -6,7 +6,7 @@ COPY dist /usr/share/nginx/html
 # Add Nginx config for HTTP and HTTPS SSL server
 RUN echo 'server { \
     listen 80; \
-    server_name pulse-crypto.duckdns.org localhost _; \
+    server_name pulse-crypto.duckdns.org pulse-dev.duckdns.org localhost _; \
     location /.well-known/acme-challenge/ { \
         root /usr/share/nginx/html; \
     } \
@@ -25,7 +25,7 @@ RUN echo 'server { \
 } \
 server { \
     listen 443 ssl; \
-    server_name pulse-crypto.duckdns.org; \
+    server_name pulse-crypto.duckdns.org pulse-dev.duckdns.org _; \
     ssl_certificate /etc/letsencrypt/live/pulse-crypto.duckdns.org/fullchain.pem; \
     ssl_certificate_key /etc/letsencrypt/live/pulse-crypto.duckdns.org/privkey.pem; \
     location /api/ { \
