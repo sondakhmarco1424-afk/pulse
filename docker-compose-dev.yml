@@ -1,0 +1,50 @@
+networks:
+  pulse-system-net:
+    name: pulse-system-net
+
+services:
+  pulse_app_dev:
+    build:
+      context: .
+      dockerfile: dockerfile
+    container_name: pulse_app_dev
+    restart: on-failure
+    ports:
+      - "8082:8081"
+    environment:
+      - APP_ENV=development
+      - SERVER_PORT=8081
+      - DB_HOST=pulse_app_db
+      - DB_PORT=3306
+      - DB_USER=pulse
+      - DB_PASSWORD=db_Default_123!
+      - DB_SCHEMA=pulse_system_dev
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=pass123!@#
+      - KAFKA_BROKERS=kafka:29092
+    networks:
+      - pulse-system-net
+    depends_on:
+      pulse_app_db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_started
+
+  pulse_frontend_dev:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pulse_frontend_dev
+    restart: on-failure
+    ports:
+      - "8083:80"
+      - "8443:443"
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    networks:
+      - pulse-system-net
+    depends_on:
+      - pulse_app_dev

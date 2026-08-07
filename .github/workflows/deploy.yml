@@ -26,5 +26,13 @@ jobs:
           script: |
             cd ~/Pulse || cd Pulse
             git fetch origin
-            git pull origin ${{ github.ref_name }}
-            DOCKER_BUILDKIT=0 docker compose -f docker-compose-pulse.yml up -d --build --pull missing
+            BRANCH="${{ github.ref_name }}"
+            git checkout $BRANCH
+            git pull origin $BRANCH
+            if [ "$BRANCH" = "main" ]; then
+              echo "🚀 Deploying MAIN branch to Production (docker-compose-pulse.yml)..."
+              DOCKER_BUILDKIT=0 docker compose -f docker-compose-pulse.yml up -d --build --pull missing
+            else
+              echo "🧪 Deploying DEVELOP branch to Staging/Dev (docker-compose-dev.yml)..."
+              DOCKER_BUILDKIT=0 docker compose -f docker-compose-dev.yml up -d --build --pull missing
+            fi

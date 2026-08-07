@@ -15,11 +15,12 @@
 
 The application is deployed live on a free-tier AWS EC2 instance (`t3.micro`) using Docker Compose and automated CI/CD:
 
-| Component | URL | Status |
-| :--- | :--- | :--- |
-| 💻 **React Frontend App** | [https://pulse-crypto.duckdns.org/](https://pulse-crypto.duckdns.org/) | ![Live](https://img.shields.io/badge/Live-Online-brightgreen) |
-| 📊 **Kafka Cluster Dashboard** | [http://pulse-crypto.duckdns.org:8080](http://pulse-crypto.duckdns.org:8080) | ![Live](https://img.shields.io/badge/Live-Online-brightgreen) |
-| ⚡ **Go REST API & Swagger** | [http://pulse-crypto.duckdns.org:8081/swagger/index.html](http://pulse-crypto.duckdns.org:8081/swagger/index.html) | ![Live](https://img.shields.io/badge/Live-Online-brightgreen) |
+| Component | Environment / Branch | URL | Status |
+| :--- | :--- | :--- | :--- |
+| 🚀 **Main Production App** | `main` | [https://pulse-crypto.duckdns.org/](https://pulse-crypto.duckdns.org/) | ![Live](https://img.shields.io/badge/Live-Online-brightgreen) |
+| 🧪 **Dev / Staging App** | `develop` | [https://pulse-dev.duckdns.org/](https://pulse-dev.duckdns.org/) | ![Staging](https://img.shields.io/badge/Staging-Active-blue) |
+| 📊 **Kafka Cluster Dashboard** | Infrastructure | [http://pulse-crypto.duckdns.org:8080](http://pulse-crypto.duckdns.org:8080) | ![Live](https://img.shields.io/badge/Live-Online-brightgreen) |
+| ⚡ **Go REST API & Swagger** | Production | [http://pulse-crypto.duckdns.org:8081/swagger/index.html](http://pulse-crypto.duckdns.org:8081/swagger/index.html) | ![Live](https://img.shields.io/badge/Live-Online-brightgreen) |
 
 ---
 
@@ -37,34 +38,37 @@ Having engineered backend systems at **Moladin** where database bottlenecks and 
 ## 🏗️ System Architecture
 
 ```
-                                +-----------------------------------+
-                                |    Binance Live WebSocket Stream  |
-                                +-----------------------------------+
-                                                  |
-                                                  v
-+-------------------+      REST API      +-----------------------------------+
-|  React / Vite UI  | -----------------> |         Go API Backend            |
-+-------------------+                    |     (Gin Framework / Bob DB)      |
-                                         +-----------------------------------+
-                                           |              |              |
-                           Read/Write DB   |              | Cache State  | Produce Events
-                                           v              v              v
-                                      +---------+    +---------+   +-------------------+
-                                      |  MySQL  |    |  Redis  |   |   Apache Kafka    |
-                                      | Database|    |  Cache  |   |(fcm-notifications)|
-                                      +---------+    +---------+   +-------------------+
-                                                                             |
-                                                               Consume Events|
-                                                                             v
-                                                                   +-------------------+
-                                                                   |  Go Worker Engine |
-                                                                   +-------------------+
-                                                                             |
-                                                                             v
-                                                                   +-------------------+
-                                                                   |  Firebase (FCM)   |
-                                                                   | Push Notification |
-                                                                   +-------------------+
+                        +-----------------------------------+
+                        |   Binance Live WebSocket Stream   |
+                        +-----------------------------------+
+                                          │
+                                          ▼ (Ingest & Publish)
+                        +-----------------------------------+
+                        |    Redis PubSub & Rolling Cache   |
+                        +-----------------------------------+
+                                          │                   
+                      (Subscribe Ticks)   │                   
+                                          v              
++-------------------+  REST API +-------------------+ (Store Alerts) +-------------------+
+|  React / Vite UI  | --------> |  Go API Backend   | -------------> |  MySQL Database   |
++-------------------+           +-------------------+                +-------------------+
+                                          │ (Evaluate Ticks)
+                                          ▼
+                                +-------------------+
+                                |  Go Worker Engine |
+                                +-------------------+
+                                          │
+                                          ▼ (Produce Events)
+                                +-------------------+
+                                |   Apache Kafka    |
+                                |(fcm-notifications)|
+                                +-------------------+
+                                          │
+                                          ▼ (Consume & Send)
+                                +-------------------+
+                                |  Firebase (FCM)   |
+                                +-------------------+
+
 ```
 
 ---
