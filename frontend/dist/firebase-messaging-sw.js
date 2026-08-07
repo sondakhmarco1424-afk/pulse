@@ -55,6 +55,15 @@ messaging.onBackgroundMessage((payload) => {
   return self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
+// Immediately activate new service worker versions
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
   const rawData = event.notification.data || {};
@@ -75,27 +84,21 @@ self.addEventListener('notificationclick', function(event) {
     ? payloadOrigin 
     : self.location.origin;
 
-  let rawLink = dataPayload.link || dataPayload.url || dataPayload.click_action || dataPayload.urlToOpen || '';
-  let urlToOpen = symbol ? `${targetOrigin}/?symbol=${encodeURIComponent(symbol)}` : targetOrigin;
-
-  if (rawLink) {
-    try {
-      const parsed = new URL(rawLink, targetOrigin);
-      urlToOpen = parsed.origin + parsed.pathname + parsed.search;
-    } catch (e) {}
-  }
+  const urlToOpen = symbol ? `${targetOrigin}/?symbol=${encodeURIComponent(symbol)}` : targetOrigin;
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(windowClients) {
-      const targetUrlObj = new URL(urlToOpen, currentOrigin);
+      let targetOriginHost = targetOrigin;
+      try {
+        targetOriginHost = new URL(targetOrigin).origin;
+      } catch (e) {}
 
       for (let i = 0; i < windowClients.length; i++) {
         let client = windowClients[i];
         try {
           const clientUrlObj = new URL(client.url);
           
-          // Match any window client on the exact same production origin
-          if (clientUrlObj.origin === targetUrlObj.origin) {
+          if (clientUrlObj.origin === targetOriginHost) {
             client.postMessage({
               type: 'FCM_NOTIFICATION_CLICK',
               symbol: symbol,
