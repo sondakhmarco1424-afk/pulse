@@ -78,6 +78,9 @@ func (svc *fcmNotificationService) Send(ctx context.Context, payload models.Aler
 
 	var webpushFCMOptions *messaging.WebpushFCMOptions
 	appURL := strings.TrimSpace(os.Getenv("APP_URL"))
+	if appOrigin := strings.TrimSpace(out["app_origin"]); appOrigin != "" {
+		appURL = appOrigin
+	}
 	if strings.HasPrefix(appURL, "http://") || strings.HasPrefix(appURL, "https://") {
 		symbol := out["symbol"]
 		linkURL := strings.TrimSuffix(appURL, "/")

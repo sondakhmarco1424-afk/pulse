@@ -55,6 +55,15 @@ messaging.onBackgroundMessage((payload) => {
   return self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
+// Immediately activate new service worker versions
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
   const rawData = event.notification.data || {};
@@ -69,20 +78,27 @@ self.addEventListener('notificationclick', function(event) {
     }
   }
 
-  const urlToOpen = symbol ? `${self.location.origin}/?symbol=${encodeURIComponent(symbol)}` : self.location.origin;
+  // Determine target origin dynamically from payload app_origin or fallback to self.location.origin
+  const payloadOrigin = dataPayload.app_origin || dataPayload.appOrigin;
+  const targetOrigin = (payloadOrigin && (payloadOrigin.startsWith('http://') || payloadOrigin.startsWith('https://'))) 
+    ? payloadOrigin 
+    : self.location.origin;
+
+  const urlToOpen = symbol ? `${targetOrigin}/?symbol=${encodeURIComponent(symbol)}` : targetOrigin;
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(windowClients) {
-      const urlObj = new URL(urlToOpen, self.location.origin);
-      const targetOriginPath = urlObj.origin + urlObj.pathname;
+      let targetOriginHost = targetOrigin;
+      try {
+        targetOriginHost = new URL(targetOrigin).origin;
+      } catch (e) {}
 
       for (let i = 0; i < windowClients.length; i++) {
         let client = windowClients[i];
         try {
           const clientUrlObj = new URL(client.url);
-          const clientOriginPath = clientUrlObj.origin + clientUrlObj.pathname;
           
-          if (clientOriginPath === targetOriginPath) {
+          if (clientUrlObj.origin === targetOriginHost) {
             client.postMessage({
               type: 'FCM_NOTIFICATION_CLICK',
               symbol: symbol,
@@ -90,13 +106,18 @@ self.addEventListener('notificationclick', function(event) {
               payload: dataPayload
             });
             if ('focus' in client) {
-              return client.focus();
+              client.focus();
             }
+            if ('navigate' in client && client.url !== urlToOpen) {
+              return client.navigate(urlToOpen);
+            }
+            return;
           }
         } catch (e) {
           console.error('Error comparing client URLs:', e);
         }
       }
+
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }

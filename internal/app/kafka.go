@@ -35,6 +35,11 @@ type (
 	}
 )
 
+var (
+	globalKafkaProducer fcmKafkaProducer
+	kafkaProducerOnce   sync.Once
+)
+
 func ProducerKafkaConfigMap() map[string]interface{} {
 	brokers := []string{}
 	if config.Kafka != nil {
@@ -43,6 +48,17 @@ func ProducerKafkaConfigMap() map[string]interface{} {
 	return map[string]interface{}{
 		"bootstrap.servers": brokers,
 	}
+}
+
+func GetKafkaProducer() (fcmKafkaProducer, error) {
+	var err error
+	kafkaProducerOnce.Do(func() {
+		globalKafkaProducer, err = NewKafkaProducer(ProducerKafkaConfigMap())
+	})
+	if err != nil {
+		return nil, err
+	}
+	return globalKafkaProducer, nil
 }
 
 func NewKafkaProducer(configMap map[string]interface{}) (fcmKafkaProducer, error) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/mail"
 	"pulse/internal/app"
+	"pulse/internal/config"
 	"pulse/internal/models"
 	"pulse/internal/repository"
 	"strconv"
@@ -53,9 +54,9 @@ func (svc *alertsService) CreateAlert(ctx context.Context, data models.AlertsReq
 		return nil, fmt.Errorf("invalid trigger direction: %s", data.TriggerDirection)
 	}
 
-	// 2. Binance Connection Check
+	// 2. Binance Connection Check (Enforced in production environment)
 	binanceRepo := repository.NewBinanceRepository()
-	if !binanceRepo.IsConnected() {
+	if !binanceRepo.IsConnected() && config.App.Env == "production" {
 		return nil, fmt.Errorf("cannot connect to Binance: creating alerts and sending notifications is disabled")
 	}
 
@@ -76,14 +77,15 @@ func (svc *alertsService) CreateAlert(ctx context.Context, data models.AlertsReq
 		PriceTrigger:       priceTrigger,
 		NotificationStatus: "PENDING",
 		TriggerDirection:   triggerDirection,
+		AppOrigin:          strings.TrimSpace(data.AppOrigin),
 	}
 
 	if err := alertsRepo.CreateAlert(ctx, alert); err != nil {
 		return nil, fmt.Errorf("failed to create alert in repository: %w", err)
 	}
 
-	// 6. Send alert request event to Kafka
-	producer, err := app.NewKafkaProducer(app.ProducerKafkaConfigMap())
+	// 6. Send alert request event to Kafka using singleton producer
+	producer, err := app.GetKafkaProducer()
 	if err == nil {
 		payload, err := json.Marshal(alert)
 		if err == nil {

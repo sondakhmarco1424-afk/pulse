@@ -1,0 +1,11 @@
+.git
+.gitignore
+.vscode
+docker/
+frontend/
+node_modules/
+tests/
+tmp/
+*.md
+context.bat
+setup.bat

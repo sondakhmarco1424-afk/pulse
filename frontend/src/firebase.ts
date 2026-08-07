@@ -7,7 +7,16 @@ import firebaseConfig from '../firebase-applet-config.json';
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId); /* CRITICAL: The app will break without this line */
 export const auth = getAuth(app);
-export const messaging = getMessaging(app);
+
+let messagingInstance: any = null;
+try {
+  if (typeof window !== 'undefined' && 'Notification' in window && 'serviceWorker' in navigator) {
+    messagingInstance = getMessaging(app);
+  }
+} catch (e) {
+  console.warn('Firebase Messaging not supported on plain HTTP domain/IP:', e);
+}
+export const messaging = messagingInstance;
 export const googleProvider = new GoogleAuthProvider();
 
 export { signInWithPopup, signOut };

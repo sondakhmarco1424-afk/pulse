@@ -47,7 +47,7 @@ func (c *goLiveChecker) Start(ctx context.Context) error {
 				return fmt.Errorf("redis pubsub channel closed")
 			}
 
-			go c.evaluateTick(ctx, msg.Payload, alertsRepo)
+			c.evaluateTick(ctx, msg.Payload, alertsRepo)
 		}
 	}
 }
@@ -107,18 +107,19 @@ func (c *goLiveChecker) evaluateTick(ctx context.Context, payload string, alerts
 					EventType:   "ALERTS_PRICE_NOTIFICATION",
 					TargetEmail: alert.Requester,
 					Data: map[string]string{
-						"title":  "Price Alert Triggered",
-						"body":   bodyText,
-						"symbol": symbol,
-						"price":  fmt.Sprintf("%.2f", currentPrice),
+						"title":      "Price Alert Triggered",
+						"body":       bodyText,
+						"symbol":     symbol,
+						"price":      fmt.Sprintf("%.2f", currentPrice),
+						"app_origin": alert.AppOrigin,
 					},
 				}
 
-				// Publish to Kafka notifications topic
+				// Publish to Kafka notifications topic using singleton producer
 				fcmSvc := NewFCMNotificationService()
-				producer, err := app.NewKafkaProducer(app.ProducerKafkaConfigMap())
+				producer, err := app.GetKafkaProducer()
 				if err != nil {
-					slog.Error("Failed to create Kafka producer, sending notification directly via FCM", "error", err)
+					slog.Error("Failed to get Kafka producer, sending notification directly via FCM", "error", err)
 					if sendErr := fcmSvc.Send(ctx, kafkaPayload); sendErr != nil {
 						slog.Error("Direct FCM fallback failed", "error", sendErr)
 					} else {

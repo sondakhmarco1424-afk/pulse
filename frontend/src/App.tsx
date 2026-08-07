@@ -122,13 +122,26 @@ function getIntervalTimeString(date: Date, interval: string): string {
 export default function App() {
   // Auth state
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8081';
-  const defaultDemoMode = (import.meta as any).env?.VITE_DEMO_MODE === 'true' || (!isLocalhost && !(import.meta as any).env?.VITE_API_BASE_URL);
+  const defaultApiUrl = typeof window !== 'undefined'
+    ? (window.location.port === '3000' || window.location.port === '5173' ? 'http://localhost:8081' : window.location.origin)
+    : 'http://localhost:8081';
+  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || defaultApiUrl;
+  const defaultDemoMode = (import.meta as any).env?.VITE_DEMO_MODE === 'true';
   const [isDemoMode, setDemoMode] = useState(defaultDemoMode);
-  const [user, setUser] = useState<any>({
-    email: !defaultDemoMode ? 'guest@pulse.com' : 'local-storage@pulse.com',
+  const getOrCreateGuestEmail = (): string => {
+    if (typeof window === 'undefined') return 'guest@pulse.com';
+    let guestId = localStorage.getItem('pulse_guest_session_id');
+    if (!guestId) {
+      guestId = `guest_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36)}@pulse.com`;
+      localStorage.setItem('pulse_guest_session_id', guestId);
+    }
+    return guestId;
+  };
+
+  const [user, setUser] = useState<any>(() => ({
+    email: !defaultDemoMode ? getOrCreateGuestEmail() : 'local-storage@pulse.com',
     displayName: !defaultDemoMode ? 'Guest (Live)' : 'Guest (Demo)'
-  });
+  }));
   const [loadingAuth, setLoadingAuth] = useState(false);
 
   // App UI state
@@ -159,6 +172,27 @@ export default function App() {
     }
   });
   const [activeToasts, setActiveToasts] = useState<NotificationLog[]>([]);
+  const [showNotifPermissionModal, setShowNotifPermissionModal] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission !== 'granted') {
+        setShowNotifPermissionModal(true);
+      }
+    }
+  }, []);
+
+  const handleEnableNotifications = async () => {
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        setShowNotifPermissionModal(false);
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error('Error requesting notification permission:', err);
+    }
+  };
 
   // Sync logs state to localStorage
   useEffect(() => {
@@ -252,7 +286,8 @@ export default function App() {
     const id = Math.random().toString(36).substring(2, 9);
     const title = '🚨 Crypto Alert Triggered!';
     const body = `The price of ${symbol} is currently ${condition} ${price.toLocaleString(undefined, { minimumFractionDigits: 2 })}.`;
-    const appUrl = (import.meta as any).env?.VITE_APP_URL || window.location.origin;
+    const rawAppUrl = (import.meta as any).env?.VITE_APP_URL || window.location.origin;
+    const appUrl = rawAppUrl.includes('localhost:3000') ? window.location.origin : rawAppUrl;
     const link = `${appUrl}/?symbol=${symbol}`;
 
     const newLog: NotificationLog = {
@@ -903,6 +938,7 @@ export default function App() {
         symbol: symbol,
         price: priceThreshold.toString(),
         trigger_direction: condition,
+        app_origin: typeof window !== 'undefined' ? window.location.origin : 'https://pulse-crypto.duckdns.org',
       };
       console.log('[handleCreateAlert] Sending creation payload to Go backend:', payload);
       try {
@@ -915,11 +951,20 @@ export default function App() {
         });
 
         if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.error || 'Failed to create alert');
+          let errMessage = 'Failed to create alert';
+          try {
+            const errData = await response.json();
+            errMessage = errData.error || errMessage;
+          } catch (e) {}
+          throw new Error(errMessage);
         }
 
-        const data = await response.json();
+        let data = null;
+        try {
+          data = await response.json();
+        } catch (e) {
+          console.log('[handleCreateAlert] Alert created successfully (empty/non-JSON response)');
+        }
         console.log('[handleCreateAlert] Successfully created alert in Go backend:', data);
 
         // Trigger refetch of alerts list
@@ -978,8 +1023,12 @@ export default function App() {
         });
 
         if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.error || 'Failed to cancel alert');
+          let errMessage = 'Failed to cancel alert';
+          try {
+            const errData = await response.json();
+            errMessage = errData.error || errMessage;
+          } catch (e) {}
+          throw new Error(errMessage);
         }
 
         // Trigger refetch of alerts list
@@ -1149,6 +1198,30 @@ export default function App() {
           ))}
         </AnimatePresence>
       </div>
+
+      {/* Required Push Notification Permission Modal */}
+      {showNotifPermissionModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="bg-[#0A0A0B] border border-emerald-500/40 rounded-2xl p-7 max-w-md w-full shadow-2xl flex flex-col items-center text-center space-y-5 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500" />
+            <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/30 rounded-full flex items-center justify-center text-emerald-400 text-3xl animate-bounce">
+              🔔
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-bold text-white tracking-wide font-sans">Enable Notifications Required</h3>
+              <p className="text-xs text-zinc-400 leading-relaxed font-sans">
+                Pulse requires notification permissions to deliver instant crypto price alerts directly to your browser even when running in the background.
+              </p>
+            </div>
+            <button
+              onClick={handleEnableNotifications}
+              className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/25 cursor-pointer font-sans tracking-wide uppercase"
+            >
+              Turn On Notifications Now
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
