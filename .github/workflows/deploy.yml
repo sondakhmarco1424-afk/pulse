@@ -6,16 +6,69 @@ on:
       - main
       - develop
 
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
-    name: Deploy to AWS EC2
+    name: Build images and deploy to AWS EC2
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve Image Names
+        id: images
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository="${GITHUB_REPOSITORY,,}"
+          echo "backend=ghcr.io/${repository}-backend:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "frontend=ghcr.io/${repository}-frontend:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Publish Backend Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.images.outputs.backend }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=pulse-backend
+          cache-to: type=gha,mode=max,scope=pulse-backend
+
+      - name: Build and Publish Frontend Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.images.outputs.frontend }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=pulse-frontend
+          cache-to: type=gha,mode=max,scope=pulse-frontend
 
       - name: Read EC2 Repository Revision
         id: remote-revision
@@ -68,21 +121,36 @@ jobs:
           target: /home/${{ secrets.EC2_USERNAME }}/Pulse/.deploy
           overwrite: true
 
-      - name: Deploy via SSH to EC2
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Pull Images and Deploy on EC2
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          PULSE_APP_IMAGE: ${{ steps.images.outputs.backend }}
+          PULSE_FRONTEND_IMAGE: ${{ steps.images.outputs.frontend }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
-          command_timeout: 15m
+          command_timeout: 10m
+          envs: REGISTRY_USERNAME,REGISTRY_PASSWORD,PULSE_APP_IMAGE,PULSE_FRONTEND_IMAGE
           script: |
             set -eu
-            cd ~/Pulse || cd Pulse
+
+            DEPLOY_DOCKER_CONFIG="$(mktemp -d)"
+            export DOCKER_CONFIG="$DEPLOY_DOCKER_CONFIG"
+            cleanup_registry_auth() {
+              rm -rf "$DEPLOY_DOCKER_CONFIG"
+            }
+            trap cleanup_registry_auth EXIT INT TERM
+
+            cd ~/Pulse
             BRANCH="${{ github.ref_name }}"
             EXPECTED_SHA="${{ github.sha }}"
             BUNDLE_PATH="$HOME/Pulse/.deploy/pulse-source.bundle"
             CURRENT_SHA="$(git rev-parse --verify "refs/heads/$BRANCH")"
+
             if [ "$CURRENT_SHA" != "$EXPECTED_SHA" ]; then
               if [ ! -f "$BUNDLE_PATH" ]; then
                 echo "Deployment blocked: repository bundle was not uploaded to $BUNDLE_PATH."
@@ -90,6 +158,7 @@ jobs:
               fi
               git fetch "$BUNDLE_PATH" "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
             fi
+
             git checkout "$BRANCH"
             if [ "$(git rev-parse --verify HEAD)" != "$EXPECTED_SHA" ]; then
               git merge --ff-only "origin/$BRANCH"
@@ -99,15 +168,100 @@ jobs:
               exit 1
             fi
             if [ ! -f .env ]; then
-              echo "Deployment blocked: ~/Pulse/.env is missing. Create it from .env.example and supply the required secrets."
+              echo "Deployment blocked: ~/Pulse/.env is missing."
               exit 1
             fi
+
             if [ "$BRANCH" = "main" ]; then
-              echo "🚀 Deploying MAIN branch to Production (docker-compose-pulse.yml)..."
-              docker compose --env-file .env -f docker-compose-pulse.yml config --quiet
-              DOCKER_BUILDKIT=1 docker compose --env-file .env -f docker-compose-pulse.yml up -d --build --pull missing --remove-orphans
+              COMPOSE_FILE="docker-compose-pulse.yml"
+              APP_SERVICE="pulse_app"
+              FRONTEND_SERVICE="pulse_frontend"
+              APP_CONTAINER="pulse_app"
+              FRONTEND_CONTAINER="pulse_frontend"
             else
-              echo "🧪 Deploying DEVELOP branch to Staging/Dev (docker-compose-dev.yml)..."
-              docker compose --env-file .env -f docker-compose-dev.yml config --quiet
-              DOCKER_BUILDKIT=1 docker compose --env-file .env -f docker-compose-dev.yml up -d --build --pull missing --remove-orphans
+              COMPOSE_FILE="docker-compose-dev.yml"
+              APP_SERVICE="pulse_app_dev"
+              FRONTEND_SERVICE="pulse_frontend_dev"
+              APP_CONTAINER="pulse_app_dev"
+              FRONTEND_CONTAINER="pulse_frontend_dev"
             fi
+
+            export PULSE_APP_IMAGE PULSE_FRONTEND_IMAGE
+            docker compose --env-file .env -f "$COMPOSE_FILE" config --quiet
+
+            printf '%s' "$REGISTRY_PASSWORD" | docker login ghcr.io --username "$REGISTRY_USERNAME" --password-stdin
+
+            PREVIOUS_APP_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$APP_CONTAINER" 2>/dev/null || true)"
+            PREVIOUS_FRONTEND_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$FRONTEND_CONTAINER" 2>/dev/null || true)"
+
+            echo "Pulling application images built by GitHub Actions..."
+            docker compose --env-file .env -f "$COMPOSE_FILE" pull "$APP_SERVICE" "$FRONTEND_SERVICE"
+
+            remove_legacy_dev_container() {
+              container_name="$1"
+              legacy_project="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$container_name" 2>/dev/null || true)"
+              if [ "$legacy_project" = "pulse" ]; then
+                echo "Removing legacy dev container $container_name from the old Compose project..."
+                docker rm --force "$container_name"
+              fi
+            }
+
+            if [ "$BRANCH" != "main" ]; then
+              remove_legacy_dev_container "$APP_CONTAINER"
+              remove_legacy_dev_container "$FRONTEND_CONTAINER"
+            fi
+
+            rollback() {
+              if [ -z "$PREVIOUS_APP_IMAGE" ] || [ -z "$PREVIOUS_FRONTEND_IMAGE" ]; then
+                echo "No complete previous application image set is available for automatic rollback."
+                return
+              fi
+              echo "Rolling back to the previous application images..."
+              PULSE_APP_IMAGE="$PREVIOUS_APP_IMAGE" \
+              PULSE_FRONTEND_IMAGE="$PREVIOUS_FRONTEND_IMAGE" \
+                docker compose --env-file .env -f "$COMPOSE_FILE" up -d --no-build --pull never \
+                  "$APP_SERVICE" "$FRONTEND_SERVICE" || true
+            }
+
+            echo "Starting containers without building on EC2..."
+            if ! docker compose --env-file .env -f "$COMPOSE_FILE" up -d --no-build --pull never --remove-orphans \
+              "$APP_SERVICE" "$FRONTEND_SERVICE"; then
+              rollback
+              exit 1
+            fi
+
+            wait_for_healthy() {
+              container_name="$1"
+              attempts=36
+              while [ "$attempts" -gt 0 ]; do
+                state="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name" 2>/dev/null || true)"
+                case "$state" in
+                  healthy|running)
+                    return 0
+                    ;;
+                  unhealthy|exited|dead)
+                    break
+                    ;;
+                esac
+                attempts=$((attempts - 1))
+                sleep 5
+              done
+              echo "$container_name did not become healthy."
+              docker logs --tail 100 "$container_name" || true
+              return 1
+            }
+
+            if ! wait_for_healthy "$APP_CONTAINER" || ! wait_for_healthy "$FRONTEND_CONTAINER"; then
+              rollback
+              exit 1
+            fi
+
+            ACTUAL_APP_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$APP_CONTAINER")"
+            ACTUAL_FRONTEND_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$FRONTEND_CONTAINER")"
+            if [ "$ACTUAL_APP_IMAGE" != "$PULSE_APP_IMAGE" ] || [ "$ACTUAL_FRONTEND_IMAGE" != "$PULSE_FRONTEND_IMAGE" ]; then
+              echo "Deployment verification failed: running image tags do not match the requested commit."
+              rollback
+              exit 1
+            fi
+
+            echo "Deployment complete at $EXPECTED_SHA; no images were built on EC2."
