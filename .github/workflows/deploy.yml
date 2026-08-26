@@ -14,6 +14,59 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read EC2 Repository Revision
+        id: remote-revision
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          command_timeout: 1m
+          capture_stdout: true
+          script: |
+            set -eu
+            cd ~/Pulse
+            git rev-parse --verify "refs/heads/${{ github.ref_name }}"
+
+      - name: Package Repository Update
+        id: package-update
+        env:
+          REMOTE_OUTPUT: ${{ steps.remote-revision.outputs.stdout }}
+        run: |
+          set -euo pipefail
+          REMOTE_SHA="$(printf '%s\n' "$REMOTE_OUTPUT" | grep -Eo '[0-9a-f]{40}' | tail -n 1 || true)"
+          if [[ -z "$REMOTE_SHA" ]]; then
+            echo "Unable to determine the EC2 repository revision."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$REMOTE_SHA" "$GITHUB_SHA"; then
+            echo "EC2 revision $REMOTE_SHA is not an ancestor of $GITHUB_SHA; refusing a non-fast-forward deployment."
+            exit 1
+          fi
+          if [[ "$REMOTE_SHA" == "$GITHUB_SHA" ]]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git bundle create pulse-source.bundle "refs/heads/${GITHUB_REF_NAME}" "^${REMOTE_SHA}"
+          git bundle verify pulse-source.bundle
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Repository Bundle to EC2
+        if: steps.package-update.outputs.needed == 'true'
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          command_timeout: 5m
+          source: pulse-source.bundle
+          target: /home/${{ secrets.EC2_USERNAME }}/Pulse/.deploy
+          overwrite: true
 
       - name: Deploy via SSH to EC2
         uses: appleboy/ssh-action@v1.0.3
@@ -25,27 +78,26 @@ jobs:
           command_timeout: 15m
           script: |
             set -eu
-
-            retry() {
-              attempt=1
-              max_attempts=3
-              while ! "$@"; do
-                if [ "$attempt" -ge "$max_attempts" ]; then
-                  echo "Command failed after $attempt attempts: $*"
-                  return 1
-                fi
-                delay=$((attempt * 5))
-                echo "Command failed (attempt $attempt/$max_attempts); retrying in ${delay}s..."
-                sleep "$delay"
-                attempt=$((attempt + 1))
-              done
-            }
-
             cd ~/Pulse || cd Pulse
             BRANCH="${{ github.ref_name }}"
-            retry git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 fetch --prune origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+            EXPECTED_SHA="${{ github.sha }}"
+            BUNDLE_PATH="$HOME/Pulse/.deploy/pulse-source.bundle"
+            CURRENT_SHA="$(git rev-parse --verify "refs/heads/$BRANCH")"
+            if [ "$CURRENT_SHA" != "$EXPECTED_SHA" ]; then
+              if [ ! -f "$BUNDLE_PATH" ]; then
+                echo "Deployment blocked: repository bundle was not uploaded to $BUNDLE_PATH."
+                exit 1
+              fi
+              git fetch "$BUNDLE_PATH" "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+            fi
             git checkout "$BRANCH"
-            git merge --ff-only "origin/$BRANCH"
+            if [ "$(git rev-parse --verify HEAD)" != "$EXPECTED_SHA" ]; then
+              git merge --ff-only "origin/$BRANCH"
+            fi
+            if [ "$(git rev-parse --verify HEAD)" != "$EXPECTED_SHA" ]; then
+              echo "Deployment blocked: EC2 did not reach expected revision $EXPECTED_SHA."
+              exit 1
+            fi
             if [ ! -f .env ]; then
               echo "Deployment blocked: ~/Pulse/.env is missing. Create it from .env.example and supply the required secrets."
               exit 1
