@@ -2,7 +2,7 @@
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
-// The web configuration is supplied by the registering page from Vite env vars.
+// The web configuration is supplied by the registering page from runtime config.
 const firebaseParams = new URL(self.location.href).searchParams;
 firebase.initializeApp({
   apiKey: firebaseParams.get('apiKey'),

@@ -16,6 +16,7 @@ import { db, auth, messaging, firebaseConfig, handleFirestoreError, OperationTyp
 import { Alert as AlertType, CoinInfo, NotificationLog, PricePoint } from './types';
 import { playNotificationSound } from './utils/audio';
 import { fetchInitialHistory, fetchTicker24h } from './utils/binance';
+import { configFlag, configValue } from './config';
 import Header from './components/Header';
 import CoinTickerCard from './components/CoinTickerCard';
 import PriceChart from './components/PriceChart';
@@ -121,10 +122,10 @@ function getIntervalTimeString(date: Date, interval: string): string {
 
 export default function App() {
   // Auth state
-  const configuredApiUrl = String((import.meta as any).env?.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  const configuredApiUrl = configValue('VITE_API_BASE_URL').replace(/\/+$/, '');
   const API_BASE_URL = configuredApiUrl || (typeof window !== 'undefined' ? window.location.origin : '');
-  const BINANCE_WS_URL = String((import.meta as any).env?.VITE_BINANCE_WS_URL || '').trim();
-  const defaultDemoMode = (import.meta as any).env?.VITE_DEMO_MODE === 'true';
+  const BINANCE_WS_URL = configValue('VITE_BINANCE_WS_URL');
+  const defaultDemoMode = configFlag('VITE_DEMO_MODE');
   const [isDemoMode, setDemoMode] = useState(defaultDemoMode);
   const getOrCreateGuestEmail = (): string => {
     if (typeof window === 'undefined') return 'guest@pulse.com';
@@ -318,7 +319,7 @@ export default function App() {
     const id = Math.random().toString(36).substring(2, 9);
     const title = '🚨 Crypto Alert Triggered!';
     const body = `The price of ${symbol} is currently ${condition} ${price.toLocaleString(undefined, { minimumFractionDigits: 2 })}.`;
-    const rawAppUrl = (import.meta as any).env?.VITE_APP_URL || window.location.origin;
+    const rawAppUrl = configValue('VITE_APP_URL') || window.location.origin;
     const appUrl = rawAppUrl.includes('localhost:3000') ? window.location.origin : rawAppUrl;
     const link = `${appUrl}/?symbol=${symbol}`;
 
@@ -574,7 +575,7 @@ export default function App() {
           }
 
           let token: string | undefined;
-          const vapidKey = String((import.meta as any).env?.VITE_FIREBASE_VAPID_KEY || '').trim();
+          const vapidKey = configValue('VITE_FIREBASE_VAPID_KEY');
 
           try {
             token = await getToken(messaging, vapidKey
@@ -980,7 +981,7 @@ export default function App() {
         trigger_direction: condition,
         app_origin: typeof window !== 'undefined'
           ? window.location.origin
-          : String((import.meta as any).env?.VITE_APP_URL || '').trim(),
+          : configValue('VITE_APP_URL'),
       };
       console.log('[handleCreateAlert] Sending creation payload to Go backend:', payload);
       try {

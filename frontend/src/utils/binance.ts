@@ -1,7 +1,7 @@
 import { PricePoint } from '../types';
+import { configValue } from '../config';
 
-const BINANCE_REST_BASE = String((import.meta as any).env?.VITE_BINANCE_REST_BASE_URL || '')
-  .trim()
+const BINANCE_REST_BASE = configValue('VITE_BINANCE_REST_BASE_URL')
   .replace(/\/+$/, '');
 
 function marketDataUrl(path: string): string {
