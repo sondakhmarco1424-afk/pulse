@@ -170,25 +170,59 @@ export default function App() {
     }
   });
   const [activeToasts, setActiveToasts] = useState<NotificationLog[]>([]);
-  const [showNotifPermissionModal, setShowNotifPermissionModal] = useState(false);
+  const notificationsSupported = typeof window !== 'undefined' && 'Notification' in window;
+  const initialNotificationPermission: NotificationPermission | 'unsupported' = notificationsSupported
+    ? Notification.permission
+    : 'unsupported';
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(initialNotificationPermission);
+  const [notificationPermissionError, setNotificationPermissionError] = useState<string | null>(null);
+  const [showNotifPermissionModal, setShowNotifPermissionModal] = useState(
+    initialNotificationPermission !== 'granted' && initialNotificationPermission !== 'unsupported'
+  );
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      if (Notification.permission !== 'granted') {
+    if (!notificationsSupported) return;
+
+    const syncNotificationPermission = () => {
+      const permission = Notification.permission;
+      setNotificationPermission(permission);
+      if (permission === 'granted') {
+        setNotificationPermissionError(null);
+        setShowNotifPermissionModal(false);
+      } else if (permission === 'default') {
+        setNotificationPermissionError(null);
         setShowNotifPermissionModal(true);
       }
-    }
-  }, []);
+    };
+
+    window.addEventListener('focus', syncNotificationPermission);
+    return () => window.removeEventListener('focus', syncNotificationPermission);
+  }, [notificationsSupported]);
 
   const handleEnableNotifications = async () => {
+    if (!notificationsSupported) {
+      setNotificationPermissionError('This browser does not support notifications.');
+      return;
+    }
+
     try {
+      setNotificationPermissionError(null);
+      if (Notification.permission === 'denied') {
+        setNotificationPermission('denied');
+        setNotificationPermissionError('Notifications are blocked for localhost. Reset the permission from the browser address-bar site settings, then return to this page.');
+        return;
+      }
+
       const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
       if (permission === 'granted') {
         setShowNotifPermissionModal(false);
-        window.location.reload();
+      } else if (permission === 'denied') {
+        setNotificationPermissionError('Notifications were blocked. Reset the permission from the browser address-bar site settings before trying again.');
       }
     } catch (err) {
       console.error('Error requesting notification permission:', err);
+      setNotificationPermissionError('The browser could not open the notification permission prompt. Check the site permission settings for localhost.');
     }
   };
 
@@ -380,7 +414,7 @@ export default function App() {
 
   // Setup FCM notifications and subscribe device token to Go backend topic
   useEffect(() => {
-    if (!isDemoMode) {
+    if (!isDemoMode && messaging && notificationsSupported && notificationPermission === 'granted') {
       let swRegistration: ServiceWorkerRegistration | undefined;
       let unsubscribeFn: (() => void) | undefined;
 
@@ -526,12 +560,6 @@ export default function App() {
 
       const initFCM = async () => {
         try {
-          const permission = await Notification.requestPermission();
-          if (permission !== 'granted') {
-            console.warn('Notification permission not granted');
-            return;
-          }
-
           if ('serviceWorker' in navigator) {
             const workerConfig = new URLSearchParams({
               apiKey: firebaseConfig.apiKey,
@@ -599,7 +627,7 @@ export default function App() {
         }
       };
     }
-  }, [user, isDemoMode, triggerPushAlert, fetchAlerts, API_BASE_URL]);
+  }, [user, isDemoMode, triggerPushAlert, fetchAlerts, API_BASE_URL, notificationPermission, notificationsSupported]);
 
   // Sync Local Storage alerts in Demo mode
   const syncDemoAlerts = (updated: AlertType[]) => {
@@ -644,15 +672,6 @@ export default function App() {
       loadAllHistory();
     }
   }, [connectionStatus, loadAllHistory]);
-
-  // Request browser Notification permissions on mount
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }, []);
-
-
 
   // Check alerts against incoming prices (Demo/Guest mode check only)
   const checkAlerts = useCallback((symbol: string, currentPrice: number) => {
@@ -1223,15 +1242,30 @@ export default function App() {
             <div className="space-y-2">
               <h3 className="text-xl font-bold text-white tracking-wide font-sans">Enable Notifications Required</h3>
               <p className="text-xs text-zinc-400 leading-relaxed font-sans">
-                Pulse requires notification permissions to deliver instant crypto price alerts directly to your browser even when running in the background.
+                {notificationPermissionError || (notificationPermission === 'denied'
+                  ? 'Notifications are blocked for localhost. Reset the permission from the browser address-bar site settings, then reload this page.'
+                  : 'Pulse requires notification permissions to deliver instant crypto price alerts directly to your browser even when running in the background.')}
               </p>
             </div>
             <button
               onClick={handleEnableNotifications}
-              className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/25 cursor-pointer font-sans tracking-wide uppercase"
+              disabled={notificationPermission === 'denied'}
+              className={`w-full py-3.5 font-bold text-sm rounded-xl transition-all font-sans tracking-wide uppercase ${
+                notificationPermission === 'denied'
+                  ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
+                  : 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg shadow-emerald-500/25 cursor-pointer'
+              }`}
             >
-              Turn On Notifications Now
+              {notificationPermission === 'denied' ? 'Blocked in Browser Settings' : 'Turn On Notifications Now'}
             </button>
+            {notificationPermission === 'denied' && (
+              <button
+                onClick={() => setShowNotifPermissionModal(false)}
+                className="text-xs text-zinc-400 hover:text-white underline underline-offset-4 cursor-pointer"
+              >
+                Continue without notifications
+              </button>
+            )}
           </div>
         </div>
       )}

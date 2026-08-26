@@ -4,9 +4,11 @@ import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, '.', 'VITE_');
+  const envDir = path.resolve(__dirname, '..');
+  const env = loadEnv(mode, envDir, 'VITE_');
 
   return {
+    envDir,
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
