@@ -174,12 +174,14 @@ jobs:
 
             if [ "$BRANCH" = "main" ]; then
               COMPOSE_FILE="docker-compose-pulse.yml"
+              PROJECT_NAME="pulse"
               APP_SERVICE="pulse_app"
               FRONTEND_SERVICE="pulse_frontend"
               APP_CONTAINER="pulse_app"
               FRONTEND_CONTAINER="pulse_frontend"
             else
               COMPOSE_FILE="docker-compose-dev.yml"
+              PROJECT_NAME="pulse-dev"
               APP_SERVICE="pulse_app_dev"
               FRONTEND_SERVICE="pulse_frontend_dev"
               APP_CONTAINER="pulse_app_dev"
@@ -187,7 +189,7 @@ jobs:
             fi
 
             export PULSE_APP_IMAGE PULSE_FRONTEND_IMAGE
-            docker compose --env-file .env -f "$COMPOSE_FILE" config --quiet
+            docker compose --project-name "$PROJECT_NAME" --env-file .env -f "$COMPOSE_FILE" config --quiet
 
             printf '%s' "$REGISTRY_PASSWORD" | docker login ghcr.io --username "$REGISTRY_USERNAME" --password-stdin
 
@@ -195,7 +197,7 @@ jobs:
             PREVIOUS_FRONTEND_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$FRONTEND_CONTAINER" 2>/dev/null || true)"
 
             echo "Pulling application images built by GitHub Actions..."
-            docker compose --env-file .env -f "$COMPOSE_FILE" pull "$APP_SERVICE" "$FRONTEND_SERVICE"
+            docker compose --project-name "$PROJECT_NAME" --env-file .env -f "$COMPOSE_FILE" pull "$APP_SERVICE" "$FRONTEND_SERVICE"
 
             remove_legacy_dev_container() {
               container_name="$1"
@@ -219,12 +221,12 @@ jobs:
               echo "Rolling back to the previous application images..."
               PULSE_APP_IMAGE="$PREVIOUS_APP_IMAGE" \
               PULSE_FRONTEND_IMAGE="$PREVIOUS_FRONTEND_IMAGE" \
-                docker compose --env-file .env -f "$COMPOSE_FILE" up -d --no-build --pull never \
+                docker compose --project-name "$PROJECT_NAME" --env-file .env -f "$COMPOSE_FILE" up -d --no-build --pull never \
                   "$APP_SERVICE" "$FRONTEND_SERVICE" || true
             }
 
             echo "Starting containers without building on EC2..."
-            if ! docker compose --env-file .env -f "$COMPOSE_FILE" up -d --no-build --pull never --remove-orphans \
+            if ! docker compose --project-name "$PROJECT_NAME" --env-file .env -f "$COMPOSE_FILE" up -d --no-build --pull never --remove-orphans \
               "$APP_SERVICE" "$FRONTEND_SERVICE"; then
               rollback
               exit 1

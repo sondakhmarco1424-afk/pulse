@@ -1,4 +1,4 @@
-name: ${COMPOSE_PROJECT_NAME:-pulse}
+name: ${PULSE_PROD_PROJECT_NAME:-pulse}
 
 networks:
   pulse-system-net:
