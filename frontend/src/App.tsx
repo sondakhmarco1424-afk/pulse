@@ -638,16 +638,16 @@ export default function App() {
   };
 
   // Initialize & reload Historical Data for all 4 coins
-  const loadAllHistory = useCallback(async () => {
+  const loadAllHistory = useCallback(async (requestedInterval: string = chartIntervalRef.current) => {
     const updatedCoins = await Promise.all(
       coinsRef.current.map(async (coin) => {
-        const history = await fetchInitialHistory(coin.symbol, chartIntervalRef.current);
+        const history = await fetchInitialHistory(coin.symbol, requestedInterval);
         const ticker = await fetchTicker24h(coin.symbol);
 
-        // Preserve existing history if REST API fetch returned empty while offline
+        // Only preserve cached points when they belong to the same interval.
         const newHistory = (history && history.length > 0)
           ? history.slice(-100)
-          : (coin.history && coin.history.length > 0 ? coin.history : []);
+          : (coin.historyInterval === requestedInterval ? coin.history : []);
 
         const currentPrice = ticker.currentPrice > 0 ? ticker.currentPrice : coin.currentPrice;
 
@@ -656,20 +656,29 @@ export default function App() {
           ...ticker,
           currentPrice,
           history: newHistory,
+          historyInterval: requestedInterval,
         };
       })
     );
+
+    // Ignore a slower response for an interval the user has already left.
+    if (chartIntervalRef.current !== requestedInterval) return;
     setCoins(updatedCoins);
   }, []);
 
   useEffect(() => {
-    loadAllHistory();
+    setCoins(previous => previous.map(coin => (
+      coin.historyInterval === chartInterval
+        ? coin
+        : { ...coin, history: [], historyInterval: chartInterval }
+    )));
+    loadAllHistory(chartInterval);
   }, [chartInterval, loadAllHistory]);
 
   // Re-fetch historical klines whenever Binance connection is restored to 'connected'
   useEffect(() => {
     if (connectionStatus === 'connected') {
-      loadAllHistory();
+      loadAllHistory(chartIntervalRef.current);
     }
   }, [connectionStatus, loadAllHistory]);
 
@@ -778,7 +787,7 @@ export default function App() {
       setCoins(prevCoins =>
         prevCoins.map(coin => {
           if (coin.symbol === symbol) {
-            const updatedHistory = [...coin.history];
+            const updatedHistory = coin.historyInterval === currentInterval ? [...coin.history] : [];
 
             const lastPoint = updatedHistory[updatedHistory.length - 1];
             if (lastPoint && lastPoint.time === intervalTimeStr) {
@@ -794,6 +803,7 @@ export default function App() {
               high24h: high,
               low24h: low,
               history: updatedHistory.slice(-100),
+              historyInterval: currentInterval,
             };
           }
           return coin;

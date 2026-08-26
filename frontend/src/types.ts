@@ -24,6 +24,7 @@ export interface CoinInfo {
   high24h: number;
   low24h: number;
   history: PricePoint[];
+  historyInterval?: string;
 }
 
 export interface NotificationLog {

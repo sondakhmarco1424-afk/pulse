@@ -1,9 +1,15 @@
 import { PricePoint } from '../types';
 
-/**
- * Public Binance REST API base URL. Fully CORS-enabled.
- */
-const BINANCE_REST_BASE = 'https://api.binance.com/api/v3';
+const BINANCE_REST_BASE = String((import.meta as any).env?.VITE_BINANCE_REST_BASE_URL || '')
+  .trim()
+  .replace(/\/+$/, '');
+
+function marketDataUrl(path: string): string {
+  if (!BINANCE_REST_BASE) {
+    throw new Error('VITE_BINANCE_REST_BASE_URL is not configured');
+  }
+  return `${BINANCE_REST_BASE}${path}`;
+}
 
 /**
  * Fetches the 100 most recent klines (candlesticks) for a given symbol from Binance
@@ -11,7 +17,7 @@ const BINANCE_REST_BASE = 'https://api.binance.com/api/v3';
  */
 export async function fetchInitialHistory(symbol: string, interval: string = '1m'): Promise<PricePoint[]> {
   try {
-    const response = await fetch(`${BINANCE_REST_BASE}/klines?symbol=${symbol}&interval=${interval}&limit=100`);
+    const response = await fetch(marketDataUrl(`/klines?symbol=${symbol}&interval=${interval}&limit=100`));
     if (!response.ok) {
       throw new Error(`Binance API error: ${response.statusText}`);
     }
@@ -33,7 +39,7 @@ export async function fetchInitialHistory(symbol: string, interval: string = '1m
  */
 export async function fetchTicker24h(symbol: string) {
   try {
-    const response = await fetch(`${BINANCE_REST_BASE}/ticker/24hr?symbol=${symbol}`);
+    const response = await fetch(marketDataUrl(`/ticker/24hr?symbol=${symbol}`));
     if (!response.ok) {
       throw new Error(`Binance API error: ${response.statusText}`);
     }
