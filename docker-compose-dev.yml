@@ -1,6 +1,8 @@
+name: ${COMPOSE_PROJECT_NAME:-pulse}-dev
+
 networks:
   pulse-system-net:
-    name: pulse-system-net
+    name: ${PULSE_NETWORK_NAME:-pulse-system-net}
 
 services:
   pulse_app_dev:
@@ -8,35 +10,83 @@ services:
       context: .
       dockerfile: dockerfile
     container_name: pulse_app_dev
-    restart: on-failure
+    restart: unless-stopped
+    init: true
     ports:
-      - "8082:8081"
+      - "127.0.0.1:${DEV_API_HOST_PORT:-8082}:${SERVER_PORT:-8081}"
     environment:
-      - APP_ENV=development
-      - SERVER_PORT=8081
-      - DB_HOST=pulse_app_db
-      - DB_PORT=3306
-      - DB_USER=pulse
-      - DB_PASSWORD=db_Default_123!
-      - DB_SCHEMA=pulse_system_dev
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=pass123!@#
-      - KAFKA_BROKERS=kafka:29092
+      APP_ENV: development
+      APP_ENABLE_AUTH: ${APP_ENABLE_AUTH:-true}
+      SERVER_PORT: ${SERVER_PORT:-8081}
+      DB_HOST: ${DB_HOST:-pulse_app_db}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_USER: ${DB_USER:?DB_USER must be set in .env}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      DB_SCHEMA: ${DB_SCHEMA_DEV:?DB_SCHEMA_DEV must be set in .env}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_EXPIRY_MINUTES: ${REDIS_EXPIRY_MINUTES:-7}
+      REDIS_MAX_RETRIES: ${REDIS_MAX_RETRIES:-5}
+      REDIS_DIAL_TIMEOUT_SECONDS: ${REDIS_DIAL_TIMEOUT_SECONDS:-5}
+      REDIS_READ_TIMEOUT_SECONDS: ${REDIS_READ_TIMEOUT_SECONDS:-3}
+      REDIS_WRITE_TIMEOUT_SECONDS: ${REDIS_WRITE_TIMEOUT_SECONDS:-3}
+      REDIS_POOL_TIMEOUT_SECONDS: ${REDIS_POOL_TIMEOUT_SECONDS:-5}
+      REDIS_RECONNECT_MIN_SECONDS: ${REDIS_RECONNECT_MIN_SECONDS:-1}
+      REDIS_RECONNECT_MAX_SECONDS: ${REDIS_RECONNECT_MAX_SECONDS:-30}
+      BINANCE_WS_URL: ${BINANCE_WS_URL:?BINANCE_WS_URL must be set in .env}
+      BINANCE_RECONNECT_DELAY_SECONDS: ${BINANCE_RECONNECT_DELAY_SECONDS:-5}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:29092}
+      KAFKA_FCM_NOTIFICATIONS_TOPIC: ${KAFKA_FCM_NOTIFICATIONS_TOPIC:-fcm-notifications}
+      FIREBASE_ENABLED: ${FIREBASE_ENABLED:-true}
+      FIREBASE_SERVICE_ACCOUNT_KEY: ${FIREBASE_SERVICE_ACCOUNT_CONTAINER_PATH:-/run/secrets/firebase-service-account.json}
+    volumes:
+      - type: bind
+        source: ${FIREBASE_SERVICE_ACCOUNT_HOST_PATH:?FIREBASE_SERVICE_ACCOUNT_HOST_PATH must be set in .env}
+        target: ${FIREBASE_SERVICE_ACCOUNT_CONTAINER_PATH:-/run/secrets/firebase-service-account.json}
+        read_only: true
     networks:
       - pulse-system-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://127.0.0.1:$${SERVER_PORT}/api/v1/binance/status >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   pulse_frontend_dev:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        VITE_APP_URL: ${VITE_APP_URL:-}
+        VITE_BINANCE_WS_URL: ${VITE_BINANCE_WS_URL:?VITE_BINANCE_WS_URL must be set in .env}
+        VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY:?VITE_FIREBASE_API_KEY must be set in .env}
+        VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN:?VITE_FIREBASE_AUTH_DOMAIN must be set in .env}
+        VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID:?VITE_FIREBASE_PROJECT_ID must be set in .env}
+        VITE_FIREBASE_STORAGE_BUCKET: ${VITE_FIREBASE_STORAGE_BUCKET:?VITE_FIREBASE_STORAGE_BUCKET must be set in .env}
+        VITE_FIREBASE_MESSAGING_SENDER_ID: ${VITE_FIREBASE_MESSAGING_SENDER_ID:?VITE_FIREBASE_MESSAGING_SENDER_ID must be set in .env}
+        VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID:?VITE_FIREBASE_APP_ID must be set in .env}
+        VITE_FIREBASE_FIRESTORE_DATABASE_ID: ${VITE_FIREBASE_FIRESTORE_DATABASE_ID:?VITE_FIREBASE_FIRESTORE_DATABASE_ID must be set in .env}
+        VITE_FIREBASE_VAPID_KEY: ${VITE_FIREBASE_VAPID_KEY:-}
+        VITE_DEMO_MODE: ${VITE_DEMO_MODE:-false}
     container_name: pulse_frontend_dev
-    restart: on-failure
+    restart: unless-stopped
+    init: true
+    environment:
+      BACKEND_UPSTREAM: pulse_app_dev:${SERVER_PORT:-8081}
     ports:
-      - "8083:80"
-    volumes:
-      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - "127.0.0.1:${DEV_FRONTEND_HOST_PORT:-8083}:80"
     networks:
       - pulse-system-net
     depends_on:
-      - pulse_app_dev
+      pulse_app_dev:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

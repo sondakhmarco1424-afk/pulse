@@ -12,7 +12,7 @@ import {
 } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { getToken, onMessage } from 'firebase/messaging';
-import { db, auth, messaging, handleFirestoreError, OperationType } from './firebase';
+import { db, auth, messaging, firebaseConfig, handleFirestoreError, OperationType } from './firebase';
 import { Alert as AlertType, CoinInfo, NotificationLog, PricePoint } from './types';
 import { playNotificationSound } from './utils/audio';
 import { fetchInitialHistory, fetchTicker24h } from './utils/binance';
@@ -121,11 +121,9 @@ function getIntervalTimeString(date: Date, interval: string): string {
 
 export default function App() {
   // Auth state
-  const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  const defaultApiUrl = typeof window !== 'undefined'
-    ? (window.location.port === '3000' || window.location.port === '5173' ? 'http://localhost:8081' : window.location.origin)
-    : 'http://localhost:8081';
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || defaultApiUrl;
+  const configuredApiUrl = String((import.meta as any).env?.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  const API_BASE_URL = configuredApiUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+  const BINANCE_WS_URL = String((import.meta as any).env?.VITE_BINANCE_WS_URL || '').trim();
   const defaultDemoMode = (import.meta as any).env?.VITE_DEMO_MODE === 'true';
   const [isDemoMode, setDemoMode] = useState(defaultDemoMode);
   const getOrCreateGuestEmail = (): string => {
@@ -433,7 +431,7 @@ export default function App() {
         }
 
         const rawPayloadObj = {
-          from: payload.from || 'projects/pulse-89cd2/topics/user_alerts',
+          from: payload.from || `projects/${firebaseConfig.projectId}/topics/user_alerts`,
           messageId: msgKey,
           priority: 'high',
           collapseKey: payload.collapseKey || 'price_alert',
@@ -535,20 +533,27 @@ export default function App() {
           }
 
           if ('serviceWorker' in navigator) {
-            swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+            const workerConfig = new URLSearchParams({
+              apiKey: firebaseConfig.apiKey,
+              authDomain: firebaseConfig.authDomain,
+              projectId: firebaseConfig.projectId,
+              storageBucket: firebaseConfig.storageBucket,
+              messagingSenderId: firebaseConfig.messagingSenderId,
+              appId: firebaseConfig.appId,
+            });
+            swRegistration = await navigator.serviceWorker.register(`/firebase-messaging-sw.js?${workerConfig}`);
             await navigator.serviceWorker.ready;
           }
 
           let token: string | undefined;
-          const vapidKey = (import.meta as any).env?.VITE_FIREBASE_VAPID_KEY || 'BOS3cdGU65M5dCHzgdLCE82-90ifQbEMKtUbP4trprrXsR2P1Y-YDJtpBzOjrfrChZ9jI0jkhWUn23Jbc-ixtIo';
+          const vapidKey = String((import.meta as any).env?.VITE_FIREBASE_VAPID_KEY || '').trim();
 
           try {
-            token = await getToken(messaging, {
-              vapidKey,
-              serviceWorkerRegistration: swRegistration,
-            });
+            token = await getToken(messaging, vapidKey
+              ? { vapidKey, serviceWorkerRegistration: swRegistration }
+              : { serviceWorkerRegistration: swRegistration });
           } catch (tokenErr) {
-            console.warn('FCM getToken with VAPID key failed, attempting fallback without VAPID key:', tokenErr);
+            console.warn('FCM token retrieval failed; attempting the Firebase project default:', tokenErr);
             try {
               token = await getToken(messaging, {
                 serviceWorkerRegistration: swRegistration,
@@ -785,6 +790,12 @@ export default function App() {
     const connectWebSocket = (force = false) => {
       if (!isMounted) return;
 
+      if (!BINANCE_WS_URL) {
+        console.error('VITE_BINANCE_WS_URL is not configured; live browser prices are unavailable.');
+        updateConnectionStatus('disconnected');
+        return;
+      }
+
       // If socket is already open and active, ensure status is connected and exit
       if (!force && ws && ws.readyState === WebSocket.OPEN && connectionStatusRef.current === 'connected') {
         return;
@@ -819,7 +830,7 @@ export default function App() {
       updateConnectionStatus('reconnecting');
       
       try {
-        ws = new WebSocket('wss://stream.binance.com:9443/stream?streams=btcusdt@ticker/ethusdt@ticker/bnbusdt@ticker/solusdt@ticker');
+        ws = new WebSocket(BINANCE_WS_URL);
 
         // 5-second connection timeout guard: fail fast to RED (disconnected) if TCP handshaking stalls
         connectTimeoutTimer = setTimeout(() => {
@@ -927,7 +938,7 @@ export default function App() {
         try { ws.close(); } catch (e) {}
       }
     };
-  }, []);
+  }, [BINANCE_WS_URL, updateConnectionStatus]);
 
   // Handler: Create alert
   const handleCreateAlert = async (symbol: string, condition: 'ABOVE' | 'BELOW', priceThreshold: number) => {
@@ -938,7 +949,9 @@ export default function App() {
         symbol: symbol,
         price: priceThreshold.toString(),
         trigger_direction: condition,
-        app_origin: typeof window !== 'undefined' ? window.location.origin : 'https://pulse-crypto.duckdns.org',
+        app_origin: typeof window !== 'undefined'
+          ? window.location.origin
+          : String((import.meta as any).env?.VITE_APP_URL || '').trim(),
       };
       console.log('[handleCreateAlert] Sending creation payload to Go backend:', payload);
       try {

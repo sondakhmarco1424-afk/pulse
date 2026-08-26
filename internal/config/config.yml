@@ -17,38 +17,32 @@ db:
     host: ${DB_HOST|localhost}
     port: ${DB_PORT|3306}
     user: ${DB_USER|root}
-    pass: ${DB_PASSWORD|db_Default_123!}
+    pass: ${DB_PASSWORD|}
     schema : ${DB_SCHEMA|pulse_system}
 
 redis:
   host: ${REDIS_HOST|localhost}
   port: ${REDIS_PORT|6380}
-  password: ${REDIS_PASSWORD|pass123!@#}
+  password: ${REDIS_PASSWORD|}
   expiry: ${REDIS_EXPIRY_MINUTES|7}
   db: ${REDIS_DB|0}
+  max_retries: ${REDIS_MAX_RETRIES|5}
+  dial_timeout_seconds: ${REDIS_DIAL_TIMEOUT_SECONDS|5}
+  read_timeout_seconds: ${REDIS_READ_TIMEOUT_SECONDS|3}
+  write_timeout_seconds: ${REDIS_WRITE_TIMEOUT_SECONDS|3}
+  pool_timeout_seconds: ${REDIS_POOL_TIMEOUT_SECONDS|5}
+  reconnect_min_seconds: ${REDIS_RECONNECT_MIN_SECONDS|1}
+  reconnect_max_seconds: ${REDIS_RECONNECT_MAX_SECONDS|30}
 
 binance:
-  ws_url: ${BINANCE_WS_URL|wss://stream.binance.com:9443/ws}
+  ws_url: ${BINANCE_WS_URL|}
+  reconnect_delay_seconds: ${BINANCE_RECONNECT_DELAY_SECONDS|5}
 
 firebase:
   enabled: ${FIREBASE_ENABLED|true}
-  service_account_key: ${FIREBASE_SERVICE_ACCOUNT_KEY|internal/config/firebase-service-account.json}
-  storage_client_bucket: ${FIREBASE_STORAGE_CLIENT_BUCKET|vms-dev-ca7ce.firebasestorage.app}
-  firestore_client_database_id: ${FIREBASE_FIRESTORE_CLIENT_DATABASE_ID|vms-db}
-  # Service account environment variables
-  type: ${FIREBASE_TYPE|service_account}
-  project_id: ${FIREBASE_PROJECT_ID|}
-  private_key_id: ${FIREBASE_PRIVATE_KEY_ID|}
-  private_key: ${FIREBASE_PRIVATE_KEY|}
-  client_email: ${FIREBASE_CLIENT_EMAIL|}
-  client_id: ${FIREBASE_CLIENT_ID|}
-  auth_uri: ${FIREBASE_AUTH_URI|https://accounts.google.com/o/oauth2/auth}
-  token_uri: ${FIREBASE_TOKEN_URI|https://oauth2.googleapis.com/token}
-  auth_provider_x509_cert_url: ${FIREBASE_AUTH_PROVIDER_X509_CERT_URL|https://www.googleapis.com/oauth2/v1/certs}
-  client_x509_cert_url: ${FIREBASE_CLIENT_X509_CERT_URL|}
-  universe_domain: ${FIREBASE_UNIVERSE_DOMAIN|googleapis.com}
+  service_account_key: ${FIREBASE_SERVICE_ACCOUNT_KEY|}
 
 kafka:
   brokers: ${KAFKA_BROKERS|localhost:9092}
   fcm_notifications_topic: ${KAFKA_FCM_NOTIFICATIONS_TOPIC|fcm-notifications}
-
+

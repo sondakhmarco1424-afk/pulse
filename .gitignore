@@ -22,6 +22,8 @@ vendor/
 # Environment variables
 .env
 .env.*
+!.env.example
+!**/.env.example
 
 # Critical Secrets
 internal/config/firebase-service-account.json

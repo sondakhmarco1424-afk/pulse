@@ -33,4 +33,5 @@ export interface NotificationLog {
   timestamp: string;
   read: boolean;
   rawPayload?: string;
+  link?: string;
 }

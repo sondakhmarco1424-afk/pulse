@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"pulse/internal/models"
 	"testing"
 	"time"
@@ -87,7 +88,10 @@ func TestGetBinanceData(t *testing.T) {
 	t.Skip("Skipping live connection test because network sandbox has no outbound internet access")
 
 	// A valid stream URL is required (e.g., BTC/USDT aggregate trade stream)
-	url := "wss://stream.binance.com:9443/ws"
+	url := os.Getenv("BINANCE_WS_URL")
+	if url == "" {
+		t.Skip("BINANCE_WS_URL is not configured")
+	}
 	headers := http.Header{}
 	headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 

@@ -1,47 +1,49 @@
+FROM node:22-alpine AS build
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY . .
+
+ARG VITE_API_BASE_URL=""
+ARG VITE_APP_URL=""
+ARG VITE_BINANCE_WS_URL
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+ARG VITE_FIREBASE_STORAGE_BUCKET
+ARG VITE_FIREBASE_MESSAGING_SENDER_ID
+ARG VITE_FIREBASE_APP_ID
+ARG VITE_FIREBASE_FIRESTORE_DATABASE_ID
+ARG VITE_FIREBASE_VAPID_KEY=""
+ARG VITE_DEMO_MODE="false"
+
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
+    VITE_APP_URL=${VITE_APP_URL} \
+    VITE_BINANCE_WS_URL=${VITE_BINANCE_WS_URL} \
+    VITE_FIREBASE_API_KEY=${VITE_FIREBASE_API_KEY} \
+    VITE_FIREBASE_AUTH_DOMAIN=${VITE_FIREBASE_AUTH_DOMAIN} \
+    VITE_FIREBASE_PROJECT_ID=${VITE_FIREBASE_PROJECT_ID} \
+    VITE_FIREBASE_STORAGE_BUCKET=${VITE_FIREBASE_STORAGE_BUCKET} \
+    VITE_FIREBASE_MESSAGING_SENDER_ID=${VITE_FIREBASE_MESSAGING_SENDER_ID} \
+    VITE_FIREBASE_APP_ID=${VITE_FIREBASE_APP_ID} \
+    VITE_FIREBASE_FIRESTORE_DATABASE_ID=${VITE_FIREBASE_FIRESTORE_DATABASE_ID} \
+    VITE_FIREBASE_VAPID_KEY=${VITE_FIREBASE_VAPID_KEY} \
+    VITE_DEMO_MODE=${VITE_DEMO_MODE}
+
+RUN test -n "$VITE_BINANCE_WS_URL" \
+    && test -n "$VITE_FIREBASE_API_KEY" \
+    && test -n "$VITE_FIREBASE_PROJECT_ID" \
+    && test -n "$VITE_FIREBASE_APP_ID" \
+    && npm run build
+
 FROM nginx:alpine
 
-# Copy pre-built static bundle into Nginx html directory
-COPY dist /usr/share/nginx/html
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY default.conf.template /etc/nginx/templates/default.conf.template
 
-# Add Nginx config for HTTP and HTTPS SSL server
-RUN echo 'server { \
-    listen 80; \
-    server_name pulse-crypto.duckdns.org pulse-dev.duckdns.org localhost _; \
-    location /.well-known/acme-challenge/ { \
-        root /usr/share/nginx/html; \
-    } \
-    location /api/ { \
-        proxy_pass http://pulse_app:8081; \
-        proxy_set_header Host $host; \
-        proxy_set_header X-Real-IP $remote_addr; \
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; \
-        proxy_set_header X-Forwarded-Proto $scheme; \
-    } \
-    location / { \
-        root /usr/share/nginx/html; \
-        index index.html; \
-        try_files $uri $uri/ /index.html; \
-    } \
-} \
-server { \
-    listen 443 ssl; \
-    server_name pulse-crypto.duckdns.org pulse-dev.duckdns.org _; \
-    ssl_certificate /etc/letsencrypt/live/pulse-crypto.duckdns.org/fullchain.pem; \
-    ssl_certificate_key /etc/letsencrypt/live/pulse-crypto.duckdns.org/privkey.pem; \
-    location /api/ { \
-        proxy_pass http://pulse_app:8081; \
-        proxy_set_header Host $host; \
-        proxy_set_header X-Real-IP $remote_addr; \
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; \
-        proxy_set_header X-Forwarded-Proto $scheme; \
-    } \
-    location / { \
-        root /usr/share/nginx/html; \
-        index index.html; \
-        try_files $uri $uri/ /index.html; \
-    } \
-}' > /etc/nginx/conf.d/default.conf
-
-EXPOSE 80 443
+EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]

@@ -6,6 +6,14 @@ frontend/
 node_modules/
 tests/
 tmp/
+pulse
+.env
+.env.*
+!.env.example
+internal/config/firebase-service-account.json
+firebase-service-account.json
+*.pem
+*.key
 *.md
 context.bat
 setup.bat

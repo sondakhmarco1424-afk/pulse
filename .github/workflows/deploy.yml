@@ -29,10 +29,16 @@ jobs:
             BRANCH="${{ github.ref_name }}"
             git checkout $BRANCH
             git pull origin $BRANCH
+            if [ ! -f .env ]; then
+              echo "Deployment blocked: ~/Pulse/.env is missing. Create it from .env.example and supply the required secrets."
+              exit 1
+            fi
             if [ "$BRANCH" = "main" ]; then
               echo "🚀 Deploying MAIN branch to Production (docker-compose-pulse.yml)..."
-              DOCKER_BUILDKIT=0 docker compose -f docker-compose-pulse.yml up -d --build --pull missing
+              docker compose --env-file .env -f docker-compose-pulse.yml config --quiet
+              DOCKER_BUILDKIT=1 docker compose --env-file .env -f docker-compose-pulse.yml up -d --build --pull missing --remove-orphans
             else
               echo "🧪 Deploying DEVELOP branch to Staging/Dev (docker-compose-dev.yml)..."
-              DOCKER_BUILDKIT=0 docker compose -f docker-compose-dev.yml up -d --build --pull missing
+              docker compose --env-file .env -f docker-compose-dev.yml config --quiet
+              DOCKER_BUILDKIT=1 docker compose --env-file .env -f docker-compose-dev.yml up -d --build --pull missing --remove-orphans
             fi

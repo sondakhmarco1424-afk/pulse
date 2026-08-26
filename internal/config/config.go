@@ -52,34 +52,28 @@ type db struct {
 }
 
 type redis struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	Password string `yaml:"password,omitempty"`
-	Expiry   int    `yaml:"expiry"`
-	DB       int    `yaml:"db"`
+	Host                string `yaml:"host"`
+	Port                int    `yaml:"port"`
+	Password            string `yaml:"password,omitempty"`
+	Expiry              int    `yaml:"expiry"`
+	DB                  int    `yaml:"db"`
+	MaxRetries          int    `yaml:"max_retries"`
+	DialTimeoutSeconds  int    `yaml:"dial_timeout_seconds"`
+	ReadTimeoutSeconds  int    `yaml:"read_timeout_seconds"`
+	WriteTimeoutSeconds int    `yaml:"write_timeout_seconds"`
+	PoolTimeoutSeconds  int    `yaml:"pool_timeout_seconds"`
+	ReconnectMinSeconds int    `yaml:"reconnect_min_seconds"`
+	ReconnectMaxSeconds int    `yaml:"reconnect_max_seconds"`
 }
 
 type binance struct {
-	WsUrl string `yaml:"ws_url"`
+	WsUrl                 string `yaml:"ws_url"`
+	ReconnectDelaySeconds int    `yaml:"reconnect_delay_seconds"`
 }
 
 type firebase struct {
-	ServiceAccountKey            string `yaml:"service_account_key"`
-	Enabled                      bool   `yaml:"enabled"`
-	Storage_Client_Bucket        string `yaml:"storage_client_bucket"`
-	Firestore_Client_Database_Id string `yaml:"firestore_client_database_id"`
-	// Environment variables for service account
-	Type                        string `yaml:"type"`
-	Project_ID                  string `yaml:"project_id"`
-	Private_Key_ID              string `yaml:"private_key_id"`
-	Private_Key                 string `yaml:"private_key"`
-	Client_Email                string `yaml:"client_email"`
-	Client_ID                   string `yaml:"client_id"`
-	Auth_URI                    string `yaml:"auth_uri"`
-	Token_URI                   string `yaml:"token_uri"`
-	Auth_Provider_X509_Cert_URL string `yaml:"auth_provider_x509_cert_url"`
-	Client_X509_Cert_URL        string `yaml:"client_x509_cert_url"`
-	Universe_Domain             string `yaml:"universe_domain"`
+	ServiceAccountKey string `yaml:"service_account_key"`
+	Enabled           bool   `yaml:"enabled"`
 }
 
 type kafkaConfig struct {
