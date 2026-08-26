@@ -28,6 +28,7 @@ export default function AlertForm({
 
   const selectedCoinInfo = coins.find(c => c.symbol === symbol) || activeCoin;
   const isNotConnected = connectionStatus !== 'connected';
+  const submissionUnavailable = isDemoMode && isNotConnected;
 
   const handlePercentageChange = (percent: number) => {
     const calculated = selectedCoinInfo.currentPrice * (1 + percent / 100);
@@ -38,8 +39,8 @@ export default function AlertForm({
     e.preventDefault();
     setError(null);
 
-    if (isNotConnected) {
-      setError('Cannot connect to Binance. Please make sure you are using a VPN if Binance is restricted in your location.');
+    if (submissionUnavailable) {
+      setError('Demo alerts require the live browser price stream. Retry the connection before creating this alert.');
       return;
     }
 
@@ -82,7 +83,9 @@ export default function AlertForm({
             <p className={`text-[10px] font-sans mt-0.5 ${
               connectionStatus === 'reconnecting' ? 'text-amber-300/80' : 'text-rose-300/80'
             }`}>
-              Notifications and alert creation are disabled until connection is restored. Please make sure you are using a VPN if Binance is restricted in your region.
+              {isDemoMode
+                ? 'Demo alerts are paused until the browser price stream reconnects.'
+                : 'The live chart is reconnecting. Server-side alert submission remains available.'}
             </p>
           </div>
           {onRetryConnection && (
@@ -219,14 +222,14 @@ export default function AlertForm({
           {/* Submit */}
           <button
             type="submit"
-            disabled={isNotConnected}
+            disabled={submissionUnavailable}
             className={`w-full py-3 font-serif italic text-sm mt-2 transition-all rounded ${
-              isNotConnected
+              submissionUnavailable
                 ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
                 : 'bg-white text-black hover:bg-zinc-200 cursor-pointer'
             }`}
           >
-            {isNotConnected ? 'Binance Connection Unavailable' : 'Deploy Price Alert'}
+            {submissionUnavailable ? 'Browser Price Stream Unavailable' : 'Deploy Price Alert'}
           </button>
 
           {/* Info Badge */}
