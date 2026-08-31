@@ -5,8 +5,60 @@ networks:
     name: ${PULSE_NETWORK_NAME:-pulse-system-net}
 
 services:
+  pulse_firebase_secret_init_dev:
+    image: ${PULSE_APP_IMAGE:-pulse-app:local}
+    user: "0:0"
+    restart: "no"
+    network_mode: none
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        case "$${PULSE_RUNTIME_UID}" in
+          ''|*[!0-9]*|0) echo "Invalid non-root Pulse runtime UID." >&2; exit 1 ;;
+        esac
+        case "$${PULSE_RUNTIME_GID}" in
+          ''|*[!0-9]*|0) echo "Invalid non-root Pulse runtime GID." >&2; exit 1 ;;
+        esac
+        case "$${FIREBASE_SERVICE_ACCOUNT_KEY}" in
+          "$${FIREBASE_SERVICE_ACCOUNT_CONTAINER_DIR}"/*) ;;
+          *) echo "Firebase credential target must stay inside its configured secret directory." >&2; exit 1 ;;
+        esac
+        test -r "$${FIREBASE_SERVICE_ACCOUNT_SOURCE}"
+        umask 077
+        temporary_path="$${FIREBASE_SERVICE_ACCOUNT_KEY}.tmp.$$"
+        cleanup() { rm -f "$${temporary_path}"; }
+        trap cleanup EXIT HUP INT TERM
+        cp "$${FIREBASE_SERVICE_ACCOUNT_SOURCE}" "$${temporary_path}"
+        chmod 0400 "$${temporary_path}"
+        chown "$${PULSE_RUNTIME_UID}:$${PULSE_RUNTIME_GID}" "$${temporary_path}"
+        mv -f "$${temporary_path}" "$${FIREBASE_SERVICE_ACCOUNT_KEY}"
+    environment:
+      PULSE_RUNTIME_UID: ${PULSE_RUNTIME_UID:-1001}
+      PULSE_RUNTIME_GID: ${PULSE_RUNTIME_GID:-1001}
+      FIREBASE_SERVICE_ACCOUNT_SOURCE: ${FIREBASE_SERVICE_ACCOUNT_SOURCE_CONTAINER_PATH:-/run/pulse-secret-source/firebase-service-account.json}
+      FIREBASE_SERVICE_ACCOUNT_CONTAINER_DIR: ${FIREBASE_SERVICE_ACCOUNT_CONTAINER_DIR:-/run/secrets}
+      FIREBASE_SERVICE_ACCOUNT_KEY: ${FIREBASE_SERVICE_ACCOUNT_CONTAINER_PATH:-/run/secrets/firebase-service-account.json}
+    volumes:
+      - type: bind
+        source: ${FIREBASE_SERVICE_ACCOUNT_HOST_PATH:?FIREBASE_SERVICE_ACCOUNT_HOST_PATH must be set in .env}
+        target: ${FIREBASE_SERVICE_ACCOUNT_SOURCE_CONTAINER_PATH:-/run/pulse-secret-source/firebase-service-account.json}
+        read_only: true
+      - type: volume
+        source: firebase_credentials_dev
+        target: ${FIREBASE_SERVICE_ACCOUNT_CONTAINER_DIR:-/run/secrets}
+
   pulse_app_dev:
     image: ${PULSE_APP_IMAGE:-pulse-app:local}
+    user: "${PULSE_RUNTIME_UID:-1001}:${PULSE_RUNTIME_GID:-1001}"
     build:
       context: .
       dockerfile: dockerfile
@@ -43,12 +95,15 @@ services:
       FIREBASE_ENABLED: ${FIREBASE_ENABLED:-true}
       FIREBASE_SERVICE_ACCOUNT_KEY: ${FIREBASE_SERVICE_ACCOUNT_CONTAINER_PATH:-/run/secrets/firebase-service-account.json}
     volumes:
-      - type: bind
-        source: ${FIREBASE_SERVICE_ACCOUNT_HOST_PATH:?FIREBASE_SERVICE_ACCOUNT_HOST_PATH must be set in .env}
-        target: ${FIREBASE_SERVICE_ACCOUNT_CONTAINER_PATH:-/run/secrets/firebase-service-account.json}
+      - type: volume
+        source: firebase_credentials_dev
+        target: ${FIREBASE_SERVICE_ACCOUNT_CONTAINER_DIR:-/run/secrets}
         read_only: true
     networks:
       - pulse-system-net
+    depends_on:
+      pulse_firebase_secret_init_dev:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl --fail --silent --show-error http://127.0.0.1:$${SERVER_PORT}/api/v1/binance/status >/dev/null"]
       interval: 15s
@@ -92,3 +147,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+volumes:
+  firebase_credentials_dev:
+    driver: local
