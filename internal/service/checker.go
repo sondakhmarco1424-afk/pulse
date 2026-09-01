@@ -11,6 +11,7 @@ import (
 	"pulse/internal/repository"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type GoLiveChecker interface {
@@ -25,31 +26,98 @@ func NewGoLiveChecker() GoLiveChecker {
 }
 
 func (c *goLiveChecker) Start(ctx context.Context) error {
-	redisRepo := repository.NewRedisRepository()
-	defer redisRepo.Close()
-
 	alertsRepo := repository.NewAlertsRepository()
-
-	slog.Info("Starting GoLiveChecker alert evaluation background worker...")
-	pubSub := redisRepo.PSubscribe(ctx, "binance:*:ticker")
-	defer pubSub.Close()
-
-	ch := pubSub.Channel()
+	minDelay := retryDuration(config.Redis.ReconnectMinSeconds, time.Second)
+	maxDelay := retryDuration(config.Redis.ReconnectMaxSeconds, 30*time.Second)
+	if maxDelay < minDelay {
+		maxDelay = minDelay
+	}
+	retryDelay := minDelay
 
 	for {
-		select {
-		case <-ctx.Done():
+		if err := ctx.Err(); err != nil {
 			slog.Info("GoLiveChecker worker shutting down...")
-			return ctx.Err()
-		case msg, ok := <-ch:
-			if !ok {
-				slog.Error("Redis PubSub channel closed in checker")
-				return fmt.Errorf("redis pubsub channel closed")
-			}
-
-			c.evaluateTick(ctx, msg.Payload, alertsRepo)
+			return err
 		}
+
+		redisRepo := repository.NewRedisRepository()
+		if err := redisRepo.Ping(ctx); err != nil {
+			_ = redisRepo.Close()
+			slog.Warn("Redis is unavailable; alert checker will retry", "error", err, "retry_in", retryDelay)
+			if !waitForRetry(ctx, retryDelay) {
+				return ctx.Err()
+			}
+			retryDelay = nextRetryDelay(retryDelay, maxDelay)
+			continue
+		}
+
+		pubSub := redisRepo.PSubscribe(ctx, "binance:*:ticker")
+		if _, err := pubSub.Receive(ctx); err != nil {
+			_ = pubSub.Close()
+			_ = redisRepo.Close()
+			slog.Warn("Failed to subscribe alert checker to Redis; retrying", "error", err, "retry_in", retryDelay)
+			if !waitForRetry(ctx, retryDelay) {
+				return ctx.Err()
+			}
+			retryDelay = nextRetryDelay(retryDelay, maxDelay)
+			continue
+		}
+
+		slog.Info("GoLiveChecker subscribed to Redis price ticks")
+		retryDelay = minDelay
+		ch := pubSub.Channel()
+		connectionLost := false
+
+		for !connectionLost {
+			select {
+			case <-ctx.Done():
+				_ = pubSub.Close()
+				_ = redisRepo.Close()
+				slog.Info("GoLiveChecker worker shutting down...")
+				return ctx.Err()
+			case msg, ok := <-ch:
+				if !ok {
+					connectionLost = true
+					continue
+				}
+				c.evaluateTick(ctx, msg.Payload, alertsRepo)
+			}
+		}
+
+		_ = pubSub.Close()
+		_ = redisRepo.Close()
+		slog.Warn("Redis PubSub channel closed; alert checker will reconnect", "retry_in", retryDelay)
+		if !waitForRetry(ctx, retryDelay) {
+			return ctx.Err()
+		}
+		retryDelay = nextRetryDelay(retryDelay, maxDelay)
 	}
+}
+
+func retryDuration(seconds int, fallback time.Duration) time.Duration {
+	if seconds <= 0 {
+		return fallback
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func nextRetryDelay(current, maximum time.Duration) time.Duration {
+	next := current * 2
+	if next > maximum {
+		return maximum
+	}
+	return next
 }
 
 func (c *goLiveChecker) evaluateTick(ctx context.Context, payload string, alertsRepo repository.AlertsRepository) {

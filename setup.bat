@@ -4,8 +4,20 @@ echo        Pulse Alerts System - Automatic Setup
 echo ====================================================
 echo.
 
+if not exist .env (
+    copy .env.example .env >nul
+    echo [ACTION REQUIRED] Created .env from .env.example.
+    echo Fill the database, Redis, Firebase web, and service-account path values, then run setup.bat again.
+    exit /b 1
+)
+
 echo [1/3] Starting Docker Infrastructure...
-docker-compose -f docker-compose-pulse.yml up -d
+docker compose --env-file .env -f docker-compose-pulse.yml config --quiet
+if %errorlevel% neq 0 (
+    echo [ERROR] .env is missing a required value or the Compose configuration is invalid.
+    exit /b %errorlevel%
+)
+docker compose --env-file .env -f docker-compose-pulse.yml up -d --build
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to start Docker containers. Make sure Docker Desktop is running!
     pause

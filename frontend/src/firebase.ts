@@ -2,7 +2,17 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getMessaging } from 'firebase/messaging';
-import firebaseConfig from '../firebase-applet-config.json';
+import { configValue } from './config';
+
+export const firebaseConfig = {
+  apiKey: configValue('VITE_FIREBASE_API_KEY'),
+  authDomain: configValue('VITE_FIREBASE_AUTH_DOMAIN'),
+  projectId: configValue('VITE_FIREBASE_PROJECT_ID'),
+  storageBucket: configValue('VITE_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: configValue('VITE_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: configValue('VITE_FIREBASE_APP_ID'),
+  firestoreDatabaseId: configValue('VITE_FIREBASE_FIRESTORE_DATABASE_ID'),
+};
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId); /* CRITICAL: The app will break without this line */

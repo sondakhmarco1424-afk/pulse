@@ -2,14 +2,15 @@
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
-// Initialize the Firebase app in the service worker
+// The web configuration is supplied by the registering page from runtime config.
+const firebaseParams = new URL(self.location.href).searchParams;
 firebase.initializeApp({
-  apiKey: "AIzaSyBAGMlFH6TU1Doo-4uqeEn0s-THnk7mX-s",
-  authDomain: "pulse-89cd2.firebaseapp.com",
-  projectId: "pulse-89cd2",
-  storageBucket: "pulse-89cd2.firebasestorage.app",
-  messagingSenderId: "654281558381",
-  appId: "1:654281558381:web:7942a262042a9a38a53264"
+  apiKey: firebaseParams.get('apiKey'),
+  authDomain: firebaseParams.get('authDomain'),
+  projectId: firebaseParams.get('projectId'),
+  storageBucket: firebaseParams.get('storageBucket'),
+  messagingSenderId: firebaseParams.get('messagingSenderId'),
+  appId: firebaseParams.get('appId')
 });
 
 // Retrieve an instance of Firebase Messaging so that it can handle background messages.

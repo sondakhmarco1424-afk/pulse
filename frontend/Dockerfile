@@ -1,47 +1,24 @@
+FROM node:22-alpine AS build
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY . .
+
+RUN npm run build
+
 FROM nginx:alpine
 
-# Copy pre-built static bundle into Nginx html directory
-COPY dist /usr/share/nginx/html
+RUN apk add --no-cache jq
 
-# Add Nginx config for HTTP and HTTPS SSL server
-RUN echo 'server { \
-    listen 80; \
-    server_name pulse-crypto.duckdns.org pulse-dev.duckdns.org localhost _; \
-    location /.well-known/acme-challenge/ { \
-        root /usr/share/nginx/html; \
-    } \
-    location /api/ { \
-        proxy_pass http://pulse_app:8081; \
-        proxy_set_header Host $host; \
-        proxy_set_header X-Real-IP $remote_addr; \
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; \
-        proxy_set_header X-Forwarded-Proto $scheme; \
-    } \
-    location / { \
-        root /usr/share/nginx/html; \
-        index index.html; \
-        try_files $uri $uri/ /index.html; \
-    } \
-} \
-server { \
-    listen 443 ssl; \
-    server_name pulse-crypto.duckdns.org pulse-dev.duckdns.org _; \
-    ssl_certificate /etc/letsencrypt/live/pulse-crypto.duckdns.org/fullchain.pem; \
-    ssl_certificate_key /etc/letsencrypt/live/pulse-crypto.duckdns.org/privkey.pem; \
-    location /api/ { \
-        proxy_pass http://pulse_app:8081; \
-        proxy_set_header Host $host; \
-        proxy_set_header X-Real-IP $remote_addr; \
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; \
-        proxy_set_header X-Forwarded-Proto $scheme; \
-    } \
-    location / { \
-        root /usr/share/nginx/html; \
-        index index.html; \
-        try_files $uri $uri/ /index.html; \
-    } \
-}' > /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY default.conf.template /etc/nginx/templates/default.conf.template
+COPY docker-entrypoint.d/10-runtime-config.sh /docker-entrypoint.d/10-runtime-config.sh
 
-EXPOSE 80 443
+RUN chmod 755 /docker-entrypoint.d/10-runtime-config.sh
+
+EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]

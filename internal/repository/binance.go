@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -41,7 +42,11 @@ func (svc *binanceRepository) ConnectWs() {
 	redis_repo := NewRedisRepository()
 	defer redis_repo.Close()
 
-	url := config.Binance.WsUrl
+	url := strings.TrimSpace(config.Binance.WsUrl)
+	if url == "" {
+		slog.Error("BINANCE_WS_URL is not configured; Binance ingestion is disabled")
+		return
+	}
 	headers := http.Header{}
 	headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 

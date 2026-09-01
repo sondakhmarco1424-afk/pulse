@@ -19,6 +19,7 @@ type (
 		PSubscribe(context.Context, ...string) *redis.PubSub
 		LPushAndTrim(context.Context, string, interface{}, int64) error
 		LRange(context.Context, string, int64, int64) ([]string, error)
+		Ping(context.Context) error
 		Close() error
 	}
 	redisRepository struct {
@@ -35,12 +36,24 @@ func NewRedisRepository() RedisRepository {
 
 func Connect() *redis.Client {
 	options := &redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", config.Redis.Host, config.Redis.Port),
-		Password: config.Redis.Password,
-		DB:       config.Redis.DB,
+		Addr:         fmt.Sprintf("%s:%d", config.Redis.Host, config.Redis.Port),
+		Password:     config.Redis.Password,
+		DB:           config.Redis.DB,
+		MaxRetries:   config.Redis.MaxRetries,
+		DialTimeout:  durationOrDefault(config.Redis.DialTimeoutSeconds, 5*time.Second),
+		ReadTimeout:  durationOrDefault(config.Redis.ReadTimeoutSeconds, 3*time.Second),
+		WriteTimeout: durationOrDefault(config.Redis.WriteTimeoutSeconds, 3*time.Second),
+		PoolTimeout:  durationOrDefault(config.Redis.PoolTimeoutSeconds, 5*time.Second),
 	}
 	client := redis.NewClient(options)
 	return client
+}
+
+func durationOrDefault(seconds int, fallback time.Duration) time.Duration {
+	if seconds <= 0 {
+		return fallback
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func (repo *redisRepository) RedisSet(key string, index *[]string, value interface{}, expiration time.Duration) error {
@@ -99,6 +112,10 @@ func (repo *redisRepository) LRange(ctx context.Context, key string, start, stop
 
 func (repo *redisRepository) RedisGet(ctx context.Context, key string) (string, error) {
 	return repo.Client.Get(ctx, key).Result()
+}
+
+func (repo *redisRepository) Ping(ctx context.Context) error {
+	return repo.Client.Ping(ctx).Err()
 }
 
 func (repo *redisRepository) Close() error {

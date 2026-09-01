@@ -12,10 +12,11 @@ import {
 } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { getToken, onMessage } from 'firebase/messaging';
-import { db, auth, messaging, handleFirestoreError, OperationType } from './firebase';
+import { db, auth, messaging, firebaseConfig, handleFirestoreError, OperationType } from './firebase';
 import { Alert as AlertType, CoinInfo, NotificationLog, PricePoint } from './types';
 import { playNotificationSound } from './utils/audio';
 import { fetchInitialHistory, fetchTicker24h } from './utils/binance';
+import { configFlag, configValue } from './config';
 import Header from './components/Header';
 import CoinTickerCard from './components/CoinTickerCard';
 import PriceChart from './components/PriceChart';
@@ -30,6 +31,8 @@ const COIN_CONFIGS = [
   { symbol: 'BNBUSDT', name: 'Binance Coin', icon: '🔶', color: 'bg-yellow-500 text-yellow-500' },
   { symbol: 'SOLUSDT', name: 'Solana', icon: '☀️', color: 'bg-purple-500 text-purple-400' },
 ];
+
+const ALERT_SYNC_INTERVAL_MS = 3000;
 
 interface ToastItemProps {
   key?: string | number;
@@ -121,12 +124,10 @@ function getIntervalTimeString(date: Date, interval: string): string {
 
 export default function App() {
   // Auth state
-  const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  const defaultApiUrl = typeof window !== 'undefined'
-    ? (window.location.port === '3000' || window.location.port === '5173' ? 'http://localhost:8081' : window.location.origin)
-    : 'http://localhost:8081';
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || defaultApiUrl;
-  const defaultDemoMode = (import.meta as any).env?.VITE_DEMO_MODE === 'true';
+  const configuredApiUrl = configValue('VITE_API_BASE_URL').replace(/\/+$/, '');
+  const API_BASE_URL = configuredApiUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+  const BINANCE_WS_URL = configValue('VITE_BINANCE_WS_URL');
+  const defaultDemoMode = configFlag('VITE_DEMO_MODE');
   const [isDemoMode, setDemoMode] = useState(defaultDemoMode);
   const getOrCreateGuestEmail = (): string => {
     if (typeof window === 'undefined') return 'guest@pulse.com';
@@ -172,25 +173,59 @@ export default function App() {
     }
   });
   const [activeToasts, setActiveToasts] = useState<NotificationLog[]>([]);
-  const [showNotifPermissionModal, setShowNotifPermissionModal] = useState(false);
+  const notificationsSupported = typeof window !== 'undefined' && 'Notification' in window;
+  const initialNotificationPermission: NotificationPermission | 'unsupported' = notificationsSupported
+    ? Notification.permission
+    : 'unsupported';
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(initialNotificationPermission);
+  const [notificationPermissionError, setNotificationPermissionError] = useState<string | null>(null);
+  const [showNotifPermissionModal, setShowNotifPermissionModal] = useState(
+    initialNotificationPermission !== 'granted' && initialNotificationPermission !== 'unsupported'
+  );
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      if (Notification.permission !== 'granted') {
+    if (!notificationsSupported) return;
+
+    const syncNotificationPermission = () => {
+      const permission = Notification.permission;
+      setNotificationPermission(permission);
+      if (permission === 'granted') {
+        setNotificationPermissionError(null);
+        setShowNotifPermissionModal(false);
+      } else if (permission === 'default') {
+        setNotificationPermissionError(null);
         setShowNotifPermissionModal(true);
       }
-    }
-  }, []);
+    };
+
+    window.addEventListener('focus', syncNotificationPermission);
+    return () => window.removeEventListener('focus', syncNotificationPermission);
+  }, [notificationsSupported]);
 
   const handleEnableNotifications = async () => {
+    if (!notificationsSupported) {
+      setNotificationPermissionError('This browser does not support notifications.');
+      return;
+    }
+
     try {
+      setNotificationPermissionError(null);
+      if (Notification.permission === 'denied') {
+        setNotificationPermission('denied');
+        setNotificationPermissionError('Notifications are blocked for this site. Reset the permission from the browser address-bar site settings, then return to this page.');
+        return;
+      }
+
       const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
       if (permission === 'granted') {
         setShowNotifPermissionModal(false);
-        window.location.reload();
+      } else if (permission === 'denied') {
+        setNotificationPermissionError('Notifications were blocked. Reset the permission from the browser address-bar site settings before trying again.');
       }
     } catch (err) {
       console.error('Error requesting notification permission:', err);
+      setNotificationPermissionError('The browser could not open the notification permission prompt. Check the notification permission for this site.');
     }
   };
 
@@ -211,6 +246,7 @@ export default function App() {
   const chartIntervalRef = useRef(chartInterval);
   const checkAlertsRef = useRef<any>(null);
   const recentMessageHashesRef = useRef<Map<string, number>>(new Map());
+  const alertsFetchInFlightRef = useRef(false);
   
   useEffect(() => {
     alertsRef.current = alerts;
@@ -225,6 +261,10 @@ export default function App() {
   }, [chartInterval]);
   // Load and subscribe to Alerts from Go Backend
   const fetchAlerts = useCallback(async () => {
+    if (alertsFetchInFlightRef.current) return;
+    alertsFetchInFlightRef.current = true;
+
+    try {
     if (!isDemoMode) {
       const requesterEmail = user?.email || 'guest@pulse.com';
       try {
@@ -232,7 +272,6 @@ export default function App() {
 
         if (!response.ok) throw new Error("Failed to fetch alerts");
         const rawAlerts = await response.json();
-        console.log('[fetchAlerts] Successfully fetched alerts from Go backend:', rawAlerts);
         let clearedIds: string[] = [];
         try {
           const parsed = JSON.parse(localStorage.getItem('cleared_triggered_alerts') || '[]');
@@ -242,12 +281,12 @@ export default function App() {
           localStorage.removeItem('cleared_triggered_alerts');
         }
 
-        if (!Array.isArray(rawAlerts)) {
+        if (rawAlerts !== null && !Array.isArray(rawAlerts)) {
           console.warn("Expected array of alerts from Go backend but received:", rawAlerts);
           return;
         }
 
-        const loadedAlerts: AlertType[] = rawAlerts
+        const loadedAlerts: AlertType[] = (rawAlerts || [])
           .map((raw: any) => ({
             id: raw.id.toString(),
             userId: raw.requester,
@@ -259,7 +298,6 @@ export default function App() {
             triggeredAt: raw.triggered_at || undefined,
           }))
           .filter((a: AlertType) => !clearedIds.includes(a.id));
-        console.log('[fetchAlerts] Parsed alerts for state:', loadedAlerts);
         setAlerts(loadedAlerts);
       } catch (error: any) {
         console.error("[fetchAlerts] Error loading alerts from Go backend:", error);
@@ -279,14 +317,17 @@ export default function App() {
         setAlerts([]);
       }
     }
-  }, [user, isDemoMode]);
+    } finally {
+      alertsFetchInFlightRef.current = false;
+    }
+  }, [API_BASE_URL, user, isDemoMode]);
 
   // Function to dispatch alerts and display in-app toast
   const triggerPushAlert = useCallback((symbol: string, condition: 'ABOVE' | 'BELOW', price: number) => {
     const id = Math.random().toString(36).substring(2, 9);
     const title = '🚨 Crypto Alert Triggered!';
     const body = `The price of ${symbol} is currently ${condition} ${price.toLocaleString(undefined, { minimumFractionDigits: 2 })}.`;
-    const rawAppUrl = (import.meta as any).env?.VITE_APP_URL || window.location.origin;
+    const rawAppUrl = configValue('VITE_APP_URL') || window.location.origin;
     const appUrl = rawAppUrl.includes('localhost:3000') ? window.location.origin : rawAppUrl;
     const link = `${appUrl}/?symbol=${symbol}`;
 
@@ -363,6 +404,21 @@ export default function App() {
     };
   }, [fetchAlerts, setActiveSymbol]);
 
+  // FCM is the real-time delivery path, but keep the visible alert list in sync
+  // if a browser blocks push delivery or temporarily loses its service worker.
+  useEffect(() => {
+    if (isDemoMode) return;
+
+    const pollAlerts = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchAlerts();
+      }
+    };
+
+    const intervalId = window.setInterval(pollAlerts, ALERT_SYNC_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [fetchAlerts, isDemoMode]);
+
   // Validate Firestore Connection on load
   useEffect(() => {
     async function testFirestore() {
@@ -382,7 +438,7 @@ export default function App() {
 
   // Setup FCM notifications and subscribe device token to Go backend topic
   useEffect(() => {
-    if (!isDemoMode) {
+    if (!isDemoMode && messaging && notificationsSupported && notificationPermission === 'granted') {
       let swRegistration: ServiceWorkerRegistration | undefined;
       let unsubscribeFn: (() => void) | undefined;
 
@@ -433,7 +489,7 @@ export default function App() {
         }
 
         const rawPayloadObj = {
-          from: payload.from || 'projects/pulse-89cd2/topics/user_alerts',
+          from: payload.from || `projects/${firebaseConfig.projectId}/topics/user_alerts`,
           messageId: msgKey,
           priority: 'high',
           collapseKey: payload.collapseKey || 'price_alert',
@@ -528,27 +584,28 @@ export default function App() {
 
       const initFCM = async () => {
         try {
-          const permission = await Notification.requestPermission();
-          if (permission !== 'granted') {
-            console.warn('Notification permission not granted');
-            return;
-          }
-
           if ('serviceWorker' in navigator) {
-            swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+            const workerConfig = new URLSearchParams({
+              apiKey: firebaseConfig.apiKey,
+              authDomain: firebaseConfig.authDomain,
+              projectId: firebaseConfig.projectId,
+              storageBucket: firebaseConfig.storageBucket,
+              messagingSenderId: firebaseConfig.messagingSenderId,
+              appId: firebaseConfig.appId,
+            });
+            swRegistration = await navigator.serviceWorker.register(`/firebase-messaging-sw.js?${workerConfig}`);
             await navigator.serviceWorker.ready;
           }
 
           let token: string | undefined;
-          const vapidKey = (import.meta as any).env?.VITE_FIREBASE_VAPID_KEY || 'BOS3cdGU65M5dCHzgdLCE82-90ifQbEMKtUbP4trprrXsR2P1Y-YDJtpBzOjrfrChZ9jI0jkhWUn23Jbc-ixtIo';
+          const vapidKey = configValue('VITE_FIREBASE_VAPID_KEY');
 
           try {
-            token = await getToken(messaging, {
-              vapidKey,
-              serviceWorkerRegistration: swRegistration,
-            });
+            token = await getToken(messaging, vapidKey
+              ? { vapidKey, serviceWorkerRegistration: swRegistration }
+              : { serviceWorkerRegistration: swRegistration });
           } catch (tokenErr) {
-            console.warn('FCM getToken with VAPID key failed, attempting fallback without VAPID key:', tokenErr);
+            console.warn('FCM token retrieval failed; attempting the Firebase project default:', tokenErr);
             try {
               token = await getToken(messaging, {
                 serviceWorkerRegistration: swRegistration,
@@ -558,9 +615,11 @@ export default function App() {
             }
           }
 
-          if (token) {
-            console.log('FCM Registration Token:', token);
-            await fetch(`${API_BASE_URL}/api/v1/fcm/subscribe`, {
+          if (!token) {
+            throw new Error('Firebase did not return a messaging token.');
+          }
+
+          const subscribeResponse = await fetch(`${API_BASE_URL}/api/v1/fcm/subscribe`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -570,8 +629,22 @@ export default function App() {
                 email: user?.email || 'guest@pulse.com',
                 requester: user?.email || 'guest@pulse.com',
               }),
-            });
+          });
+
+          if (!subscribeResponse.ok) {
+            let reason = `HTTP ${subscribeResponse.status}`;
+            try {
+              const errorBody = await subscribeResponse.json();
+              if (typeof errorBody?.error === 'string' && errorBody.error.trim()) {
+                reason = errorBody.error;
+              }
+            } catch (parseError) {
+              console.warn('FCM subscription error response was not JSON:', parseError);
+            }
+            throw new Error(`FCM subscription failed: ${reason}`);
           }
+
+          console.info('FCM device subscribed to the alert topic.');
 
           // Handle foreground message
           unsubscribeFn = onMessage(messaging, (payload) => {
@@ -594,7 +667,7 @@ export default function App() {
         }
       };
     }
-  }, [user, isDemoMode, triggerPushAlert, fetchAlerts, API_BASE_URL]);
+  }, [user, isDemoMode, triggerPushAlert, fetchAlerts, API_BASE_URL, notificationPermission, notificationsSupported]);
 
   // Sync Local Storage alerts in Demo mode
   const syncDemoAlerts = (updated: AlertType[]) => {
@@ -605,16 +678,16 @@ export default function App() {
   };
 
   // Initialize & reload Historical Data for all 4 coins
-  const loadAllHistory = useCallback(async () => {
+  const loadAllHistory = useCallback(async (requestedInterval: string = chartIntervalRef.current) => {
     const updatedCoins = await Promise.all(
       coinsRef.current.map(async (coin) => {
-        const history = await fetchInitialHistory(coin.symbol, chartIntervalRef.current);
+        const history = await fetchInitialHistory(coin.symbol, requestedInterval);
         const ticker = await fetchTicker24h(coin.symbol);
 
-        // Preserve existing history if REST API fetch returned empty while offline
+        // Only preserve cached points when they belong to the same interval.
         const newHistory = (history && history.length > 0)
           ? history.slice(-100)
-          : (coin.history && coin.history.length > 0 ? coin.history : []);
+          : (coin.historyInterval === requestedInterval ? coin.history : []);
 
         const currentPrice = ticker.currentPrice > 0 ? ticker.currentPrice : coin.currentPrice;
 
@@ -623,31 +696,31 @@ export default function App() {
           ...ticker,
           currentPrice,
           history: newHistory,
+          historyInterval: requestedInterval,
         };
       })
     );
+
+    // Ignore a slower response for an interval the user has already left.
+    if (chartIntervalRef.current !== requestedInterval) return;
     setCoins(updatedCoins);
   }, []);
 
   useEffect(() => {
-    loadAllHistory();
+    setCoins(previous => previous.map(coin => (
+      coin.historyInterval === chartInterval
+        ? coin
+        : { ...coin, history: [], historyInterval: chartInterval }
+    )));
+    loadAllHistory(chartInterval);
   }, [chartInterval, loadAllHistory]);
 
   // Re-fetch historical klines whenever Binance connection is restored to 'connected'
   useEffect(() => {
     if (connectionStatus === 'connected') {
-      loadAllHistory();
+      loadAllHistory(chartIntervalRef.current);
     }
   }, [connectionStatus, loadAllHistory]);
-
-  // Request browser Notification permissions on mount
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }, []);
-
-
 
   // Check alerts against incoming prices (Demo/Guest mode check only)
   const checkAlerts = useCallback((symbol: string, currentPrice: number) => {
@@ -754,7 +827,7 @@ export default function App() {
       setCoins(prevCoins =>
         prevCoins.map(coin => {
           if (coin.symbol === symbol) {
-            const updatedHistory = [...coin.history];
+            const updatedHistory = coin.historyInterval === currentInterval ? [...coin.history] : [];
 
             const lastPoint = updatedHistory[updatedHistory.length - 1];
             if (lastPoint && lastPoint.time === intervalTimeStr) {
@@ -770,6 +843,7 @@ export default function App() {
               high24h: high,
               low24h: low,
               history: updatedHistory.slice(-100),
+              historyInterval: currentInterval,
             };
           }
           return coin;
@@ -784,6 +858,12 @@ export default function App() {
 
     const connectWebSocket = (force = false) => {
       if (!isMounted) return;
+
+      if (!BINANCE_WS_URL) {
+        console.error('VITE_BINANCE_WS_URL is not configured; live browser prices are unavailable.');
+        updateConnectionStatus('disconnected');
+        return;
+      }
 
       // If socket is already open and active, ensure status is connected and exit
       if (!force && ws && ws.readyState === WebSocket.OPEN && connectionStatusRef.current === 'connected') {
@@ -819,7 +899,7 @@ export default function App() {
       updateConnectionStatus('reconnecting');
       
       try {
-        ws = new WebSocket('wss://stream.binance.com:9443/stream?streams=btcusdt@ticker/ethusdt@ticker/bnbusdt@ticker/solusdt@ticker');
+        ws = new WebSocket(BINANCE_WS_URL);
 
         // 5-second connection timeout guard: fail fast to RED (disconnected) if TCP handshaking stalls
         connectTimeoutTimer = setTimeout(() => {
@@ -927,7 +1007,7 @@ export default function App() {
         try { ws.close(); } catch (e) {}
       }
     };
-  }, []);
+  }, [BINANCE_WS_URL, updateConnectionStatus]);
 
   // Handler: Create alert
   const handleCreateAlert = async (symbol: string, condition: 'ABOVE' | 'BELOW', priceThreshold: number) => {
@@ -938,7 +1018,9 @@ export default function App() {
         symbol: symbol,
         price: priceThreshold.toString(),
         trigger_direction: condition,
-        app_origin: typeof window !== 'undefined' ? window.location.origin : 'https://pulse-crypto.duckdns.org',
+        app_origin: typeof window !== 'undefined'
+          ? window.location.origin
+          : configValue('VITE_APP_URL'),
       };
       console.log('[handleCreateAlert] Sending creation payload to Go backend:', payload);
       try {
@@ -1210,15 +1292,30 @@ export default function App() {
             <div className="space-y-2">
               <h3 className="text-xl font-bold text-white tracking-wide font-sans">Enable Notifications Required</h3>
               <p className="text-xs text-zinc-400 leading-relaxed font-sans">
-                Pulse requires notification permissions to deliver instant crypto price alerts directly to your browser even when running in the background.
+                {notificationPermissionError || (notificationPermission === 'denied'
+                  ? 'Notifications are blocked for this site. Reset the permission from the browser address-bar site settings, then reload this page.'
+                  : 'Pulse requires notification permissions to deliver instant crypto price alerts directly to your browser even when running in the background.')}
               </p>
             </div>
             <button
               onClick={handleEnableNotifications}
-              className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/25 cursor-pointer font-sans tracking-wide uppercase"
+              disabled={notificationPermission === 'denied'}
+              className={`w-full py-3.5 font-bold text-sm rounded-xl transition-all font-sans tracking-wide uppercase ${
+                notificationPermission === 'denied'
+                  ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
+                  : 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg shadow-emerald-500/25 cursor-pointer'
+              }`}
             >
-              Turn On Notifications Now
+              {notificationPermission === 'denied' ? 'Blocked in Browser Settings' : 'Turn On Notifications Now'}
             </button>
+            {notificationPermission === 'denied' && (
+              <button
+                onClick={() => setShowNotifPermissionModal(false)}
+                className="text-xs text-zinc-400 hover:text-white underline underline-offset-4 cursor-pointer"
+              >
+                Continue without notifications
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -355,6 +355,9 @@ func (svc *alertsRepository) GetAlertsByRequester(ctx context.Context, requester
 		}
 		return nil, fmt.Errorf("failed to query alerts: %w", err)
 	}
+	if alerts == nil {
+		return []models.Alert{}, nil
+	}
 
 	return alerts, nil
 }

@@ -24,6 +24,7 @@ export interface CoinInfo {
   high24h: number;
   low24h: number;
   history: PricePoint[];
+  historyInterval?: string;
 }
 
 export interface NotificationLog {
@@ -33,4 +34,5 @@ export interface NotificationLog {
   timestamp: string;
   read: boolean;
   rawPayload?: string;
+  link?: string;
 }

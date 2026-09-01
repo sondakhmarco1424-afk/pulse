@@ -6,7 +6,6 @@
 // @BasePath /api/v1
 package main
 
-
 import (
 	"context"
 	"fmt"
@@ -16,6 +15,7 @@ import (
 	"pulse/internal/repository"
 	routers "pulse/internal/router"
 	"pulse/internal/service"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -27,7 +27,7 @@ func binanceInit() {
 
 func main() {
 	slog.Info("Server is starting ...")
-	
+
 	// Initialize configuration
 	config.Setup("internal/config/config.yml")
 
@@ -44,9 +44,15 @@ func main() {
 
 	// 2. Start Binance Websocket stream connection
 	go func() {
+		retryDelay := 5 * time.Second
+		if config.Binance.ReconnectDelaySeconds > 0 {
+			retryDelay = time.Duration(config.Binance.ReconnectDelaySeconds) * time.Second
+		}
 		for {
 			slog.Info("Initializing Binance WebSocket...")
 			binanceInit()
+			slog.Warn("Binance WebSocket disconnected; reconnecting", "retry_in", retryDelay)
+			time.Sleep(retryDelay)
 		}
 	}()
 

@@ -92,7 +92,7 @@ func (mr *SimpleMockRedis) handleConn(conn net.Conn, t *testing.T) {
 					continue
 				}
 				tokenLen, _ := strconv.Atoi(lenLine[1:])
-				
+
 				buf := make([]byte, tokenLen+2)
 				_, err = reader.Read(buf)
 				if err != nil {
@@ -180,7 +180,6 @@ func TestGetAlertsFlow(t *testing.T) {
 	// Initialize configuration
 	config.Setup("../../../internal/config/config.yml")
 
-
 	// Spin up test server with our gin router
 	router := routers.Init()
 	ts := httptest.NewServer(router)
@@ -239,6 +238,10 @@ func TestCreateAlertValidation(t *testing.T) {
 	}
 
 	// 3. Test Binance disconnected error
+	previousEnv := config.App.Env
+	config.App.Env = "production"
+	defer func() { config.App.Env = previousEnv }()
+
 	_, err = svc.CreateAlert(ctx, models.AlertsRequestRaw{
 		Requester:        "user@example.com",
 		Symbol:           "BTCUSDT",
@@ -249,4 +252,3 @@ func TestCreateAlertValidation(t *testing.T) {
 		t.Errorf("expected cannot connect to Binance error when disconnected, got %v", err)
 	}
 }
-
