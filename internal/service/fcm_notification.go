@@ -155,9 +155,10 @@ func (svc *fcmNotificationService) Subscribe(ctx context.Context, token, email s
 	if err != nil {
 		return fmt.Errorf("failed to subscribe token to topic: %w", err)
 	}
+	if resp == nil || resp.SuccessCount != 1 {
+		return fmt.Errorf("firebase rejected the fcm token subscription")
+	}
 
 	slog.Info("Successfully subscribed FCM token to topic", "email", email, "topic", topic, "success_count", resp.SuccessCount)
 	return nil
 }
-
-

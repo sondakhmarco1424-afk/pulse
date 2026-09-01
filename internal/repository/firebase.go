@@ -142,6 +142,13 @@ func (repo *firebaseRepository) resolveServiceAccountKey(credFile string) (strin
 		}
 
 		if _, err := os.Stat(candidate); err == nil {
+			file, openErr := os.Open(candidate)
+			if openErr != nil {
+				return "", fmt.Errorf("firebase service account key file is not readable: %s: %w", candidate, openErr)
+			}
+			if closeErr := file.Close(); closeErr != nil {
+				return "", fmt.Errorf("failed to close firebase service account key file: %s: %w", candidate, closeErr)
+			}
 			return candidate, nil
 		}
 	}

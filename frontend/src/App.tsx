@@ -32,6 +32,8 @@ const COIN_CONFIGS = [
   { symbol: 'SOLUSDT', name: 'Solana', icon: '☀️', color: 'bg-purple-500 text-purple-400' },
 ];
 
+const ALERT_SYNC_INTERVAL_MS = 3000;
+
 interface ToastItemProps {
   key?: string | number;
   toast: NotificationLog;
@@ -210,7 +212,7 @@ export default function App() {
       setNotificationPermissionError(null);
       if (Notification.permission === 'denied') {
         setNotificationPermission('denied');
-        setNotificationPermissionError('Notifications are blocked for localhost. Reset the permission from the browser address-bar site settings, then return to this page.');
+        setNotificationPermissionError('Notifications are blocked for this site. Reset the permission from the browser address-bar site settings, then return to this page.');
         return;
       }
 
@@ -223,7 +225,7 @@ export default function App() {
       }
     } catch (err) {
       console.error('Error requesting notification permission:', err);
-      setNotificationPermissionError('The browser could not open the notification permission prompt. Check the site permission settings for localhost.');
+      setNotificationPermissionError('The browser could not open the notification permission prompt. Check the notification permission for this site.');
     }
   };
 
@@ -244,6 +246,7 @@ export default function App() {
   const chartIntervalRef = useRef(chartInterval);
   const checkAlertsRef = useRef<any>(null);
   const recentMessageHashesRef = useRef<Map<string, number>>(new Map());
+  const alertsFetchInFlightRef = useRef(false);
   
   useEffect(() => {
     alertsRef.current = alerts;
@@ -258,6 +261,10 @@ export default function App() {
   }, [chartInterval]);
   // Load and subscribe to Alerts from Go Backend
   const fetchAlerts = useCallback(async () => {
+    if (alertsFetchInFlightRef.current) return;
+    alertsFetchInFlightRef.current = true;
+
+    try {
     if (!isDemoMode) {
       const requesterEmail = user?.email || 'guest@pulse.com';
       try {
@@ -265,7 +272,6 @@ export default function App() {
 
         if (!response.ok) throw new Error("Failed to fetch alerts");
         const rawAlerts = await response.json();
-        console.log('[fetchAlerts] Successfully fetched alerts from Go backend:', rawAlerts);
         let clearedIds: string[] = [];
         try {
           const parsed = JSON.parse(localStorage.getItem('cleared_triggered_alerts') || '[]');
@@ -275,12 +281,12 @@ export default function App() {
           localStorage.removeItem('cleared_triggered_alerts');
         }
 
-        if (!Array.isArray(rawAlerts)) {
+        if (rawAlerts !== null && !Array.isArray(rawAlerts)) {
           console.warn("Expected array of alerts from Go backend but received:", rawAlerts);
           return;
         }
 
-        const loadedAlerts: AlertType[] = rawAlerts
+        const loadedAlerts: AlertType[] = (rawAlerts || [])
           .map((raw: any) => ({
             id: raw.id.toString(),
             userId: raw.requester,
@@ -292,7 +298,6 @@ export default function App() {
             triggeredAt: raw.triggered_at || undefined,
           }))
           .filter((a: AlertType) => !clearedIds.includes(a.id));
-        console.log('[fetchAlerts] Parsed alerts for state:', loadedAlerts);
         setAlerts(loadedAlerts);
       } catch (error: any) {
         console.error("[fetchAlerts] Error loading alerts from Go backend:", error);
@@ -312,7 +317,10 @@ export default function App() {
         setAlerts([]);
       }
     }
-  }, [user, isDemoMode]);
+    } finally {
+      alertsFetchInFlightRef.current = false;
+    }
+  }, [API_BASE_URL, user, isDemoMode]);
 
   // Function to dispatch alerts and display in-app toast
   const triggerPushAlert = useCallback((symbol: string, condition: 'ABOVE' | 'BELOW', price: number) => {
@@ -395,6 +403,21 @@ export default function App() {
       window.removeEventListener('popstate', handleSync);
     };
   }, [fetchAlerts, setActiveSymbol]);
+
+  // FCM is the real-time delivery path, but keep the visible alert list in sync
+  // if a browser blocks push delivery or temporarily loses its service worker.
+  useEffect(() => {
+    if (isDemoMode) return;
+
+    const pollAlerts = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchAlerts();
+      }
+    };
+
+    const intervalId = window.setInterval(pollAlerts, ALERT_SYNC_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [fetchAlerts, isDemoMode]);
 
   // Validate Firestore Connection on load
   useEffect(() => {
@@ -592,9 +615,11 @@ export default function App() {
             }
           }
 
-          if (token) {
-            console.log('FCM Registration Token:', token);
-            await fetch(`${API_BASE_URL}/api/v1/fcm/subscribe`, {
+          if (!token) {
+            throw new Error('Firebase did not return a messaging token.');
+          }
+
+          const subscribeResponse = await fetch(`${API_BASE_URL}/api/v1/fcm/subscribe`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -604,8 +629,22 @@ export default function App() {
                 email: user?.email || 'guest@pulse.com',
                 requester: user?.email || 'guest@pulse.com',
               }),
-            });
+          });
+
+          if (!subscribeResponse.ok) {
+            let reason = `HTTP ${subscribeResponse.status}`;
+            try {
+              const errorBody = await subscribeResponse.json();
+              if (typeof errorBody?.error === 'string' && errorBody.error.trim()) {
+                reason = errorBody.error;
+              }
+            } catch (parseError) {
+              console.warn('FCM subscription error response was not JSON:', parseError);
+            }
+            throw new Error(`FCM subscription failed: ${reason}`);
           }
+
+          console.info('FCM device subscribed to the alert topic.');
 
           // Handle foreground message
           unsubscribeFn = onMessage(messaging, (payload) => {
@@ -1254,7 +1293,7 @@ export default function App() {
               <h3 className="text-xl font-bold text-white tracking-wide font-sans">Enable Notifications Required</h3>
               <p className="text-xs text-zinc-400 leading-relaxed font-sans">
                 {notificationPermissionError || (notificationPermission === 'denied'
-                  ? 'Notifications are blocked for localhost. Reset the permission from the browser address-bar site settings, then reload this page.'
+                  ? 'Notifications are blocked for this site. Reset the permission from the browser address-bar site settings, then reload this page.'
                   : 'Pulse requires notification permissions to deliver instant crypto price alerts directly to your browser even when running in the background.')}
               </p>
             </div>
